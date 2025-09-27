@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+{{ super() }}
+<style>
+  html, body {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(to bottom, #cceeff, #66ccff);
+    overflow: hidden;
+  }
+  #login-ocean {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    pointer-events: none;
+  }
+  .login-wrap {
+    position: relative;
+    min-height: 100vh;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-wrap flex items-center justify-center px-4">
+  <canvas id="login-ocean"></canvas>
+  <div class="relative z-10 w-full max-w-md">
+    <div class="bg-white/80 backdrop-blur-xl p-8 rounded-3xl shadow-2xl space-y-6 border border-white/40">
+      <div class="text-center space-y-2">
+        <h1 class="text-3xl font-semibold text-slate-800">Hermas Stock Taker</h1>
+        <p class="text-sm text-slate-600">Sign in with your administrator credentials</p>
+      </div>
+      <form id="login-form" class="space-y-5">
+        <div>
+          <label class="block text-sm font-medium text-slate-600 mb-1" for="username">Username</label>
+          <input class="w-full border border-slate-300/70 rounded-xl px-3 py-2.5 bg-white/80 focus:outline-none focus:ring-2 focus:ring-sky-500" id="username" name="username" required />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-600 mb-1" for="password">Password</label>
+          <input type="password" class="w-full border border-slate-300/70 rounded-xl px-3 py-2.5 bg-white/80 focus:outline-none focus:ring-2 focus:ring-sky-500" id="password" name="password" required />
+        </div>
+        <button class="w-full bg-sky-600 hover:bg-sky-700 text-white rounded-xl py-2.5 font-semibold shadow-lg shadow-sky-600/30 transition" type="submit">Login</button>
+        <p id="error" class="text-sm text-red-600 hidden text-center">Invalid credentials</p>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script>
+const canvas = document.getElementById("login-ocean");
+const ctx = canvas.getContext("2d");
+let width, height;
+let time = 0;
+
+function resizeOcean() {
+  width = canvas.width = window.innerWidth;
+  height = canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resizeOcean);
+resizeOcean();
+
+function wave(yOffset, amplitude, wavelength, speed, color, roughness = 0.3) {
+  ctx.beginPath();
+  ctx.moveTo(0, height);
+  for (let x = 0; x <= width; x++) {
+    let y = yOffset
+      + Math.sin((x / wavelength) + time * speed) * amplitude
+      + Math.sin((x / (wavelength / 2)) + time * speed * 1.5) * amplitude * roughness
+      + Math.sin((x / (wavelength / 4)) + time * speed * 2) * amplitude * roughness * 0.5;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(width, height);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function animateOcean() {
+  ctx.clearRect(0, 0, width, height);
+  time += 0.02;
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, "#cceeff");
+  gradient.addColorStop(1, "#66ccff");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+
+  wave(height * 0.65, 80, 500, 0.4, "rgba(102, 204, 255, 0.5)", 0.4);
+  wave(height * 0.72, 70, 400, 0.6, "rgba(51, 153, 255, 0.6)", 0.4);
+  wave(height * 0.78, 60, 300, 0.8, "rgba(0, 128, 255, 0.7)", 0.4);
+  wave(height * 0.85, 50, 200, 1.0, "rgba(0, 102, 204, 0.9)", 0.5);
+
+  requestAnimationFrame(animateOcean);
+}
+animateOcean();
+
+const form = document.getElementById('login-form');
+const error = document.getElementById('error');
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  error.classList.add('hidden');
+  const payload = {
+    username: form.username.value,
+    password: form.password.value,
+  };
+  try {
+    const res = await fetch("/api/v1/auth/login", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      window.location.href = "/dashboard";
+    } else {
+      error.classList.remove('hidden');
+    }
+  } catch (err) {
+    console.error(err);
+    error.classList.remove('hidden');
+  }
+});
+</script>
+{% endblock %}

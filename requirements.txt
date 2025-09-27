@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy>=2
+psycopg[binary]
+alembic
+python-dotenv
+Jinja2
+itsdangerous
+passlib==1.7.4
+openpyxl
+python-multipart
