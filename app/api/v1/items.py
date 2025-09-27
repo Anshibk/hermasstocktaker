@@ -43,7 +43,7 @@ def create_item(payload: ItemCreate, db: Session = Depends(get_db)):
 @router.put(
     "/{item_id}",
     response_model=ItemOut,
-    dependencies=[Depends(require_permission("can_import_master_data"))],
+    dependencies=[Depends(require_permission("can_edit_add_item"))],
 )
 def update_item(item_id: uuid.UUID, payload: ItemUpdate, db: Session = Depends(get_db)):
     item = db.get(Item, item_id)
