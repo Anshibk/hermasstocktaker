@@ -880,13 +880,17 @@ function normaliseEntryPagePayload(payload){
       const numeric = Number(value);
       return Number.isFinite(numeric) ? numeric : fallback;
     };
+    const hasNextFlag =
+      typeof payload.hasNext !== "undefined"
+        ? payload.hasNext
+        : payload.has_next;
     return {
       items,
       meta: {
         total: toNumber(payload.total, items.length),
         limit: toNumber(payload.limit, items.length),
         offset: toNumber(payload.offset, 0),
-        hasNext: Boolean(payload.hasNext),
+        hasNext: Boolean(hasNextFlag),
       },
     };
   }
