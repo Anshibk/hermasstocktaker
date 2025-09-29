@@ -544,33 +544,33 @@ def _build_master_entries_sheet(
     for line_number, entry in enumerate(detail_rows, start=1):
         row_idx = header_row + line_number - 1
         zebra = line_number % 2 == 0
-            category_display = entry.get("category_name") or "—"
-            location_display = entry.get("location") or "—"
-            batch_display = entry.get("batch") or "—"
-            cells = [
-                (1, line_number, Alignment(horizontal="center"), None),
-                (2, _format_date_label(entry.get("created_at")), Alignment(horizontal="center"), None),
-                (3, entry.get("username"), Alignment(horizontal="left"), None),
-                (4, entry.get("item_name"), Alignment(horizontal="left"), None),
-                (5, category_display, Alignment(horizontal="left"), None),
-                (6, batch_display, Alignment(horizontal="left"), None),
-                (7, entry.get("mfg"), Alignment(horizontal="center"), None),
-                (8, entry.get("exp"), Alignment(horizontal="center"), None),
-                (
-                    9,
-                    _format_qty_text(entry.get("qty"), entry.get("unit")),
-                    Alignment(horizontal="right"),
-                    "@",
-                ),
-                (10, location_display, Alignment(horizontal="left"), None),
-                (
-                    11,
-                    entry.get("price"),
-                    Alignment(horizontal="right"),
-                    CURRENCY_FORMAT if entry.get("price") is not None else None,
-                ),
-                (12, entry.get("line_value"), Alignment(horizontal="right"), CURRENCY_FORMAT),
-            ]
+        category_display = entry.get("category_name") or "—"
+        location_display = entry.get("location") or "—"
+        batch_display = entry.get("batch") or "—"
+        cells = [
+            (1, line_number, Alignment(horizontal="center"), None),
+            (2, _format_date_label(entry.get("created_at")), Alignment(horizontal="center"), None),
+            (3, entry.get("username"), Alignment(horizontal="left"), None),
+            (4, entry.get("item_name"), Alignment(horizontal="left"), None),
+            (5, category_display, Alignment(horizontal="left"), None),
+            (6, batch_display, Alignment(horizontal="left"), None),
+            (7, entry.get("mfg"), Alignment(horizontal="center"), None),
+            (8, entry.get("exp"), Alignment(horizontal="center"), None),
+            (
+                9,
+                _format_qty_text(entry.get("qty"), entry.get("unit")),
+                Alignment(horizontal="right"),
+                "@",
+            ),
+            (10, location_display, Alignment(horizontal="left"), None),
+            (
+                11,
+                entry.get("price"),
+                Alignment(horizontal="right"),
+                CURRENCY_FORMAT if entry.get("price") is not None else None,
+            ),
+            (12, entry.get("line_value"), Alignment(horizontal="right"), CURRENCY_FORMAT),
+        ]
 
         for column, value, alignment, number_format in cells:
             cell = sheet.cell(row=row_idx, column=column)
