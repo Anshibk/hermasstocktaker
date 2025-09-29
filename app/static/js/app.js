@@ -3683,6 +3683,7 @@ function renderAddPage(){
   }
   function paintItems(){
     const q=$("#addSearch").value.trim().toLowerCase();
+    const groupOrder = new Map(CORE_GROUP_NAMES.map((name, idx) => [name.toLowerCase(), idx]));
     const rows=itemsAgg().filter(r=>{
       if(q && !r.name.toLowerCase().includes(q)) return false;
       if(flt.add.group!=="all" && r.group!==flt.add.group) return false;
@@ -3690,6 +3691,14 @@ function renderAddPage(){
       return true;
     })
     .sort((a,b)=>{
+      const aGroupKey=(a.group||"").toLocaleLowerCase();
+      const bGroupKey=(b.group||"").toLocaleLowerCase();
+      const aOrder=groupOrder.has(aGroupKey)?groupOrder.get(aGroupKey):groupOrder.size;
+      const bOrder=groupOrder.has(bGroupKey)?groupOrder.get(bGroupKey):groupOrder.size;
+      if(aOrder!==bOrder) return aOrder-bOrder;
+      if(aOrder===groupOrder.size && aGroupKey!==bGroupKey){
+        return aGroupKey.localeCompare(bGroupKey);
+      }
       const aCat=(a.sub||a.group||"").toLocaleLowerCase();
       const bCat=(b.sub||b.group||"").toLocaleLowerCase();
       if(aCat!==bCat) return aCat.localeCompare(bCat);
