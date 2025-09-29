@@ -503,6 +503,11 @@ function seedState() {
     },
     locations: [],
     lines: [],
+    entryPaging: {
+      raw: defaultEntryPagingMeta(),
+      sfg: defaultEntryPagingMeta(),
+      fg: defaultEntryPagingMeta(),
+    },
     metrics: [],
     metricEntities: [],
     entrySticky: {
@@ -853,17 +858,68 @@ function normaliseEntryFromApi(entry){
   };
 }
 
-function replaceEntriesForType(type,entries){
+function defaultEntryPagingMeta(){
+  return { total:0, limit:0, offset:0, hasNext:false };
+}
+
+function normaliseEntryPagePayload(payload){
+  if(Array.isArray(payload)){
+    return {
+      items: payload,
+      meta: {
+        total: payload.length,
+        limit: payload.length,
+        offset: 0,
+        hasNext: false,
+      },
+    };
+  }
+  if(payload && typeof payload === "object"){
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const toNumber = (value, fallback=0) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    };
+    return {
+      items,
+      meta: {
+        total: toNumber(payload.total, items.length),
+        limit: toNumber(payload.limit, items.length),
+        offset: toNumber(payload.offset, 0),
+        hasNext: Boolean(payload.hasNext),
+      },
+    };
+  }
+  return { items: [], meta: defaultEntryPagingMeta() };
+}
+
+function ensureEntryPaging(){
+  if(!state.entryPaging){
+    state.entryPaging={
+      raw: defaultEntryPagingMeta(),
+      sfg: defaultEntryPagingMeta(),
+      fg: defaultEntryPagingMeta(),
+    };
+  }
+}
+
+function replaceEntriesForType(type,payload){
+  ensureEntryPaging();
+  const { items, meta } = normaliseEntryPagePayload(payload);
   const upper=String(type||"").toUpperCase();
+  const lower=String(type||"").toLowerCase();
   const keep=state.lines.filter(line=>line?.type!==upper);
-  const normalized=(entries||[]).map(normaliseEntryFromApi).filter(Boolean);
+  const normalized=items.map(normaliseEntryFromApi).filter(Boolean);
   state.lines=keep.concat(normalized);
+  if(lower){
+    state.entryPaging[lower]={...defaultEntryPagingMeta(), ...meta};
+  }
 }
 
 async function refreshEntries(type){
   const lower=String(type||"").toLowerCase();
   const payload=await api.get(`/entries/?type=${encodeURIComponent(lower)}`);
-  replaceEntriesForType(type,payload||[]);
+  replaceEntriesForType(type,payload);
 }
 
 async function refreshItems(){
