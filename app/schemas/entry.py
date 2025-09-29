@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, validator
+from pydantic import BaseModel, ConfigDict, field_validator, validator
 
 from app.models.entry import EntryType
 
@@ -72,6 +72,30 @@ class EntryUserOut(BaseModel):
     username: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class EntryPage(BaseModel):
+    items: list[EntryOut]
+    total: int
+    limit: int
+    offset: int
+    has_next: bool
+
+
+class EntryBulkDeleteRequest(BaseModel):
+    entry_ids: list[uuid.UUID]
+
+    @field_validator("entry_ids", mode="after")
+    @classmethod
+    def _deduplicate_ids(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
+        seen: set[uuid.UUID] = set()
+        result: list[uuid.UUID] = []
+        for entry_id in value:
+            if entry_id in seen:
+                continue
+            seen.add(entry_id)
+            result.append(entry_id)
+        return result
 
 
 EntryOut.model_rebuild()

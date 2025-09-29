@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 import uuid
 
-from sqlalchemy import CheckConstraint, Enum, ForeignKey, Numeric, String, TIMESTAMP, func
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Index, Numeric, String, TIMESTAMP, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +20,9 @@ class Entry(Base):
     __tablename__ = "entries"
     __table_args__ = (
         CheckConstraint("type in ('raw','sfg','fg')", name="ck_entries_type"),
+        Index("entries_created_at_idx", "created_at"),
+        Index("entries_item_id_idx", "item_id"),
+        Index("entries_user_id_idx", "user_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

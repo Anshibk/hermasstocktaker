@@ -36,6 +36,7 @@ app.include_router(bootstrap.router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def configure_broker() -> None:
+    entry_event_broker.configure(queue_size=settings.entry_event_queue_size)
     entry_event_broker.set_loop(asyncio.get_running_loop())
 
 

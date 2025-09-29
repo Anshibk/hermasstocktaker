@@ -421,7 +421,7 @@ const api = {
   get: (path) => apiRequest(path),
   post: (path, body, options = {}) => apiRequest(path, { method: "POST", body, ...options }),
   put: (path, body, options = {}) => apiRequest(path, { method: "PUT", body, ...options }),
-  delete: (path) => apiRequest(path, { method: "DELETE" }),
+  delete: (path, body, options = {}) => apiRequest(path, { method: "DELETE", body, ...options }),
 };
 
 /* ============== Domain constants ============== */
@@ -503,6 +503,11 @@ function seedState() {
     },
     locations: [],
     lines: [],
+    entryPaging: {
+      raw: defaultEntryPagingMeta(),
+      sfg: defaultEntryPagingMeta(),
+      fg: defaultEntryPagingMeta(),
+    },
     metrics: [],
     metricEntities: [],
     entrySticky: {
@@ -853,17 +858,72 @@ function normaliseEntryFromApi(entry){
   };
 }
 
-function replaceEntriesForType(type,entries){
+function defaultEntryPagingMeta(){
+  return { total:0, limit:0, offset:0, hasNext:false };
+}
+
+function normaliseEntryPagePayload(payload){
+  if(Array.isArray(payload)){
+    return {
+      items: payload,
+      meta: {
+        total: payload.length,
+        limit: payload.length,
+        offset: 0,
+        hasNext: false,
+      },
+    };
+  }
+  if(payload && typeof payload === "object"){
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const toNumber = (value, fallback=0) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    };
+    const hasNextFlag =
+      typeof payload.hasNext !== "undefined"
+        ? payload.hasNext
+        : payload.has_next;
+    return {
+      items,
+      meta: {
+        total: toNumber(payload.total, items.length),
+        limit: toNumber(payload.limit, items.length),
+        offset: toNumber(payload.offset, 0),
+        hasNext: Boolean(hasNextFlag),
+      },
+    };
+  }
+  return { items: [], meta: defaultEntryPagingMeta() };
+}
+
+function ensureEntryPaging(){
+  if(!state.entryPaging){
+    state.entryPaging={
+      raw: defaultEntryPagingMeta(),
+      sfg: defaultEntryPagingMeta(),
+      fg: defaultEntryPagingMeta(),
+    };
+  }
+}
+
+function replaceEntriesForType(type,payload){
+  ensureEntryPaging();
+  const { items, meta } = normaliseEntryPagePayload(payload);
   const upper=String(type||"").toUpperCase();
+  const lower=String(type||"").toLowerCase();
   const keep=state.lines.filter(line=>line?.type!==upper);
-  const normalized=(entries||[]).map(normaliseEntryFromApi).filter(Boolean);
+  const normalized=items.map(normaliseEntryFromApi).filter(Boolean);
   state.lines=keep.concat(normalized);
+  if(lower){
+    state.entryPaging[lower]={...defaultEntryPagingMeta(), ...meta};
+  }
 }
 
 async function refreshEntries(type){
   const lower=String(type||"").toLowerCase();
   const payload=await api.get(`/entries/?type=${encodeURIComponent(lower)}`);
-  replaceEntriesForType(type,payload||[]);
+  replaceEntriesForType(type,payload);
 }
 
 async function refreshItems(){
@@ -891,10 +951,9 @@ async function deleteEntriesForItem(itemId){
   if(!itemId) return;
   const idStr=String(itemId);
   const related=state.lines.filter(line=>line.itemId===idStr);
-  for(const entry of related){
-    if(!entry?.id) continue;
-    await api.delete(`/entries/${encodeURIComponent(entry.id)}`);
-  }
+  const ids = related.map((entry)=>entry?.id).filter(Boolean);
+  if(!ids.length) return;
+  await api.delete('/entries/bulk', { entry_ids: ids });
 }
 
 async function refreshLocations(){
@@ -2584,61 +2643,66 @@ function renderApp(){
 
         <div id="page" class="relative p-4 md:p-8 max-w-full mx-auto w-full">${loadingOverlay}</div>
         <div id="toast" class="fixed bottom-5 right-5 hidden bg-slate-900 text-white rounded-xl px-4 py-2.5 shadow-lg z-[60] font-semibold text-sm"></div>
-        <div id="dateRangeModal" class="date-modal${ui.dateRangeModalOpen ? ' show' : ''}">
+        <div id="dateRangeModal" class="modal${ui.dateRangeModalOpen ? ' show' : ''}">
           <div class="mask" data-close></div>
-          <div class="date-modal-dialog">
-            <div class="date-modal-header">
+          <div class="modal-dialog modal-dialog--sm">
+            <div class="modal-header">
               <div>
-                <h3 class="title">Filter by date</h3>
-                <p class="subtitle">Choose a period to view stock entries.</p>
+                <h3 class="modal-title">Filter by date</h3>
+                <p class="modal-subtitle">Choose a period to view stock entries.</p>
               </div>
-              <button type="button" class="close" data-close aria-label="Close">
+              <button type="button" class="modal-close" data-close aria-label="Close">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               </button>
             </div>
-            <div class="date-modal-body">
-              <div class="field">
+            <div class="modal-body modal-body--grid">
+              <div class="modal-field">
                 <label for="modalDateFrom">From</label>
                 <input type="date" id="modalDateFrom" value="${H((ui.dateRangeDraft?.from || getDateRange().from || ''))}" />
               </div>
-              <div class="field">
+              <div class="modal-field">
                 <label for="modalDateTo">To</label>
                 <input type="date" id="modalDateTo" value="${H((ui.dateRangeDraft?.to || getDateRange().to || ''))}" />
               </div>
             </div>
-            <div class="date-modal-footer">
-              <button type="button" class="btn-secondary" data-close>Cancel</button>
-              <button type="button" class="btn-secondary" id="dateRangeClear">Clear</button>
-              <button type="button" class="btn-primary" id="dateRangeApply">Apply</button>
+            <div class="modal-footer">
+              <button type="button" class="modal-btn secondary" data-close>Cancel</button>
+              <button type="button" class="modal-btn secondary" id="dateRangeClear">Clear</button>
+              <button type="button" class="modal-btn primary" id="dateRangeApply">Apply</button>
             </div>
           </div>
         </div>
-        <div id="confirmOverlay" class="fixed inset-0 z-[70] hidden">
-          <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
-          <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-[90vw]">
-            <div class="px-6 py-5">
-              <h3 class="text-lg font-semibold text-slate-900 mb-3">Please Confirm</h3>
-              <p id="confirmMessage" class="text-sm text-slate-600 leading-relaxed"></p>
-            </div>
-            <div class="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200">
-              <button type="button" id="confirmCancel" class="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-white">Cancel</button>
-              <button type="button" id="confirmOk" class="px-4 py-2 rounded-lg bg-cyan-600 text-white text-sm font-semibold hover:bg-cyan-700">Confirm</button>
-            </div>
-          </div>
-        </div>
-        <div id="exportOverlay" class="fixed inset-0 z-[75] hidden">
-          <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" data-close></div>
-          <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl border border-slate-200 w-[min(92vw,480px)]">
-            <div class="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-200">
-              <div>
-                <h3 class="text-lg font-semibold text-slate-900">Export dashboard</h3>
-                <p class="text-sm text-slate-600 mt-1">Do you want to include all master items?</p>
-              </div>
-              <button type="button" class="p-2 rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition" data-close>
+        <div id="confirmOverlay" class="modal modal--confirm">
+          <div class="mask" data-close></div>
+          <div class="modal-dialog modal-dialog--sm">
+            <div class="modal-header">
+              <h3 class="modal-title">Please confirm</h3>
+              <button type="button" class="modal-close" data-close aria-label="Close">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               </button>
             </div>
-            <form id="exportForm" class="px-6 py-5 space-y-4">
+            <div class="modal-body">
+              <p id="confirmMessage" class="text-sm text-slate-600 leading-relaxed"></p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" id="confirmCancel" class="modal-btn secondary">Cancel</button>
+              <button type="button" id="confirmOk" class="modal-btn primary">Confirm</button>
+            </div>
+          </div>
+        </div>
+        <div id="exportOverlay" class="modal modal--export">
+          <div class="mask" data-close></div>
+          <div class="modal-dialog modal-dialog--md">
+            <div class="modal-header">
+              <div>
+                <h3 class="modal-title">Export dashboard</h3>
+                <p class="modal-subtitle">Do you want to include all master items?</p>
+              </div>
+              <button type="button" class="modal-close" data-close aria-label="Close">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            <form id="exportForm" class="modal-body space-y-4">
               <label class="flex items-start gap-3 p-3 border border-slate-200 rounded-xl hover:border-cyan-400 transition cursor-pointer">
                 <input type="radio" name="exportMode" value="with-master" class="mt-1.5 h-4 w-4 text-cyan-600 focus:ring-cyan-500" checked>
                 <span>
@@ -2654,11 +2718,11 @@ function renderApp(){
                 </span>
               </label>
               <p class="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">Scope: Uses the active stock-taking period.</p>
-              <div class="flex justify-end gap-3 pt-2">
-                <button type="button" class="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-white" data-close>Cancel</button>
-                <button type="button" id="exportSubmit" class="px-4 py-2 rounded-lg bg-cyan-600 text-white text-sm font-semibold hover:bg-cyan-700 transition">Export</button>
-              </div>
             </form>
+            <div class="modal-footer">
+              <button type="button" class="modal-btn secondary" data-close>Cancel</button>
+              <button type="button" id="exportSubmit" class="modal-btn primary">Export</button>
+            </div>
           </div>
         </div>
       </main>
@@ -2762,10 +2826,13 @@ function renderApp(){
   if(confirmOverlay){
     const cancelBtn=$("#confirmCancel");
     const okBtn=$("#confirmOk");
-    const backdrop=confirmOverlay.querySelector(':scope > div');
+    const backdrop=confirmOverlay.querySelector('.mask');
     if(cancelBtn) cancelBtn.onclick=()=>resolveConfirm(false);
     if(okBtn) okBtn.onclick=()=>resolveConfirm(true);
     if(backdrop) backdrop.onclick=()=>resolveConfirm(false);
+    confirmOverlay.querySelectorAll('[data-close]').forEach(btn=>{
+      btn.onclick=()=>resolveConfirm(false);
+    });
   }
   const exportOverlay=$("#exportOverlay");
   if(exportOverlay){
@@ -3616,16 +3683,43 @@ function renderAddPage(){
   }
   function paintItems(){
     const q=$("#addSearch").value.trim().toLowerCase();
+    const groupOrder = new Map(CORE_GROUP_NAMES.map((name, idx) => [name.toLowerCase(), idx]));
     const rows=itemsAgg().filter(r=>{
       if(q && !r.name.toLowerCase().includes(q)) return false;
       if(flt.add.group!=="all" && r.group!==flt.add.group) return false;
       if(flt.add.sub && r.sub!==flt.add.sub) return false;
       return true;
+    })
+    .sort((a,b)=>{
+      const aGroupKey=(a.group||"").toLocaleLowerCase();
+      const bGroupKey=(b.group||"").toLocaleLowerCase();
+      const aOrder=groupOrder.has(aGroupKey)?groupOrder.get(aGroupKey):groupOrder.size;
+      const bOrder=groupOrder.has(bGroupKey)?groupOrder.get(bGroupKey):groupOrder.size;
+      if(aOrder!==bOrder) return aOrder-bOrder;
+      if(aOrder===groupOrder.size && aGroupKey!==bGroupKey){
+        return aGroupKey.localeCompare(bGroupKey);
+      }
+      const aCat=(a.sub||a.group||"").toLocaleLowerCase();
+      const bCat=(b.sub||b.group||"").toLocaleLowerCase();
+      if(aCat!==bCat) return aCat.localeCompare(bCat);
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     });
     const ids=rows.map(r=>r.id);
-    $("#itemsBody").innerHTML=rows.map(r=>{
+    let currentCategoryKey=null;
+    const html=rows.map(r=>{
+      const labelRaw=r.sub||r.group||"Uncategorized";
+      const categoryKey=labelRaw.toLocaleLowerCase();
+      const showHeader=categoryKey!==currentCategoryKey;
+      if(showHeader){
+        currentCategoryKey=categoryKey;
+      }
       const highlightClass = getEntryHighlightClass(r.id);
       return `
+      ${showHeader?`
+        <tr class="bg-slate-100">
+          <td colspan="6" class="px-4 py-2 text-xs font-semibold tracking-wide text-slate-600 uppercase border-t border-slate-200">${H(labelRaw)}</td>
+        </tr>
+      `:""}
       <tr class="hover:bg-slate-50 transition-colors${highlightClass}">
         <td class="px-4 py-2.5 border-t border-slate-200 font-medium">${H(r.name)}</td>
         <td class="px-4 py-2.5 border-t border-slate-200 text-slate-500">${r.group||"—"}</td>
@@ -3637,6 +3731,7 @@ function renderAddPage(){
                          :canEditItems?`<button class="p-1.5 rounded-md text-slate-500 hover:bg-slate-200" title="Edit" data-edit="${H(r.id)}">✎</button>`:'<span class="text-xs text-slate-400">—</span>'}
         </td>
       </tr>`;}).join("");
+    $("#itemsBody").innerHTML=html;
     if(canEditItems){
       $$('[data-edit]').forEach(b=>b.onclick=()=>{ editItemId.add=b.getAttribute("data-edit"); addPanel.add=true; renderAddPage(); });
     }
@@ -3852,9 +3947,7 @@ function renderEntryPage(type){
     const button=deleteBulkBtn;
     try{
       if(button) button.disabled=true;
-      for(const entryId of ids){
-        await api.delete(`/entries/${encodeURIComponent(entryId)}`);
-      }
+      await api.delete('/entries/bulk', { entry_ids: ids });
       await refreshEntries(type);
       bulkSelected[key].clear();
       bulkMode[key]=false;
@@ -4636,7 +4729,7 @@ function showDashboardExportDialog(){
     const first=form.querySelector('input[name="exportMode"]');
     if(first) first.checked=true;
   }
-  overlay.classList.remove('hidden');
+  overlay.classList.add('show');
   const body=document.body;
   if(body) body.classList.add('overflow-hidden');
   if(exportDialogKeyHandler){
@@ -4648,7 +4741,7 @@ function showDashboardExportDialog(){
 function hideDashboardExportDialog(){
   const overlay=$("#exportOverlay");
   if(overlay){
-    overlay.classList.add('hidden');
+    overlay.classList.remove('show');
   }
   const body=document.body;
   if(body) body.classList.remove('overflow-hidden');
@@ -4668,7 +4761,7 @@ let confirmKeyHandler=null;
 function resolveConfirm(result){
   const overlay=$("#confirmOverlay");
   if(overlay){
-    overlay.classList.add("hidden");
+    overlay.classList.remove("show");
   }
   const body=document.body;
   if(body) body.classList.remove("overflow-hidden");
@@ -4687,7 +4780,7 @@ function confirmDialog(message){
   const messageEl=$("#confirmMessage");
   if(!overlay||!messageEl) return Promise.resolve(false);
   messageEl.textContent=message;
-  overlay.classList.remove("hidden");
+  overlay.classList.add("show");
   const body=document.body;
   if(body) body.classList.add("overflow-hidden");
   return new Promise(resolve=>{

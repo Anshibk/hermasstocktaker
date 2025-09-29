@@ -4,6 +4,8 @@ import uuid
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 
+from typing import Sequence
+
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.realtime import notify_entry_created, notify_entry_deleted, notify_entry_updated
@@ -22,13 +24,30 @@ def _combine_entry_datetime(entry_date: date | None, existing: datetime | None) 
     return datetime.combine(entry_date, base_time)
 
 
-def list_entries(db: Session, *, user_ids: list[uuid.UUID] | None = None, entry_type: EntryType | None = None) -> list[Entry]:
+def list_entries(
+    db: Session,
+    *,
+    user_ids: list[uuid.UUID] | None = None,
+    entry_type: EntryType | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[Entry], int]:
     query = db.query(Entry).options(selectinload(Entry.user))
     if user_ids is not None:
+        if not user_ids:
+            return [], 0
         query = query.filter(Entry.user_id.in_(user_ids))
     if entry_type:
         query = query.filter(Entry.type == entry_type)
-    return query.order_by(Entry.created_at.desc()).all()
+
+    total = query.count()
+    rows = (
+        query.order_by(Entry.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return rows, total
 
 
 def create_entry(db: Session, payload: EntryCreate, user_id: uuid.UUID) -> Entry:
@@ -79,3 +98,28 @@ def delete_entry(db: Session, entry_id: uuid.UUID) -> None:
     db.delete(entry)
     db.commit()
     notify_entry_deleted(entry_id, entry_type)
+
+
+def delete_entries_bulk(db: Session, entry_ids: Sequence[uuid.UUID]) -> int:
+    """Delete multiple entries in a single transaction."""
+
+    seen: set[uuid.UUID] = set()
+    ids: list[uuid.UUID] = []
+    for entry_id in entry_ids:
+        if not entry_id:
+            continue
+        normalized = uuid.UUID(str(entry_id))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        ids.append(normalized)
+    if not ids:
+        return 0
+
+    deleted = (
+        db.query(Entry)
+        .filter(Entry.id.in_(ids))
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return deleted

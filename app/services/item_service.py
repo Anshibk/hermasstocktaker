@@ -4,6 +4,7 @@ from collections import OrderedDict
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Any
+from uuid import UUID
 
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
@@ -43,35 +44,6 @@ def _coerce_price(value: Any) -> Decimal | None:
         return Decimal(text).quantize(Decimal("0.01"))
     except (InvalidOperation, ValueError) as exc:  # noqa: BLE001
         raise ValueError("Price must be a valid number") from exc
-
-
-def _resolve_group(db: Session, name: str) -> CategoryGroup:
-    existing = (
-        db.query(CategoryGroup)
-        .filter(func.lower(CategoryGroup.name) == name.lower())
-        .one_or_none()
-    )
-    if existing:
-        return existing
-    raise ValueError(
-        "Inventory group is not recognised. Please use one of the official group names."
-    )
-
-
-def _resolve_subcategory(db: Session, group: CategoryGroup, name: str | None) -> SubCategory | None:
-    if not name:
-        return None
-    existing = (
-        db.query(SubCategory)
-        .filter(func.lower(SubCategory.name) == name.lower(), SubCategory.group_id == group.id)
-        .one_or_none()
-    )
-    if existing:
-        return existing
-    sub = SubCategory(name=name, group_id=group.id)
-    db.add(sub)
-    db.flush()
-    return sub
 
 
 def import_items(db: Session, payload: bytes, *, original_filename: str = "import.xlsx") -> dict[str, int]:
@@ -141,21 +113,73 @@ def import_items(db: Session, payload: bytes, *, original_filename: str = "impor
     if not deduped:
         raise ValueError("No valid rows found in the spreadsheet")
 
+    group_names = {row["group_name"].lower() for row in deduped.values()}
+    groups = (
+        db.query(CategoryGroup)
+        .filter(func.lower(CategoryGroup.name).in_(group_names))
+        .all()
+    )
+    group_lookup = {group.name.lower(): group for group in groups}
+    missing_groups = sorted(group_names - set(group_lookup))
+    if missing_groups:
+        raise ValueError(
+            "Inventory group is not recognised. Please use one of the official group names."
+        )
+
+    requested_subcategories: dict[tuple[UUID, str], str] = {}
+    for row in deduped.values():
+        sub_name = row.get("sub_category")
+        if not sub_name:
+            continue
+        group = group_lookup[row["group_name"].lower()]
+        key = (group.id, sub_name.lower())
+        if key not in requested_subcategories:
+            requested_subcategories[key] = sub_name
+
+    existing_subcategories: dict[tuple[UUID, str], SubCategory] = {}
+    if requested_subcategories:
+        group_ids = {group_id for group_id, _ in requested_subcategories.keys()}
+        existing = (
+            db.query(SubCategory)
+            .filter(SubCategory.group_id.in_(group_ids))
+            .all()
+        )
+        for sub in existing:
+            existing_subcategories[(sub.group_id, sub.name.lower())] = sub
+
+        new_subs: list[SubCategory] = []
+        for key, original_name in requested_subcategories.items():
+            if key in existing_subcategories:
+                continue
+            group_id, _ = key
+            sub = SubCategory(name=original_name, group_id=group_id)
+            new_subs.append(sub)
+            existing_subcategories[key] = sub
+        if new_subs:
+            db.add_all(new_subs)
+            db.flush()
+
+    item_names = list(deduped.keys())
+    item_lookup: dict[str, Item] = {}
+    if item_names:
+        existing_items = (
+            db.query(Item)
+            .filter(func.lower(Item.name).in_(item_names))
+            .all()
+        )
+        item_lookup = {item.name.lower(): item for item in existing_items}
+
     created = 0
     updated = 0
 
     for payload_row in deduped.values():
-        try:
-            group = _resolve_group(db, payload_row["group_name"])
-        except ValueError as exc:  # noqa: PERF203
-            raise ValueError(str(exc)) from exc
-        sub = _resolve_subcategory(db, group, payload_row.get("sub_category"))
+        group = group_lookup[payload_row["group_name"].lower()]
+        sub_name = payload_row.get("sub_category")
+        sub: SubCategory | None = None
+        if sub_name:
+            sub = existing_subcategories.get((group.id, sub_name.lower()))
 
-        existing_item = (
-            db.query(Item)
-            .filter(func.lower(Item.name) == payload_row["item_name"].lower())
-            .one_or_none()
-        )
+        existing_item = item_lookup.get(payload_row["item_name"].lower())
 
         if existing_item:
             existing_item.unit = payload_row["unit"]

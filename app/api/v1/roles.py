@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import require_permission, get_db
 from app.schemas.role import RoleCreate, RoleOut, RoleUpdate
 from app.services import role_service
-from app.services.role_service import RoleProtectionError
+from app.services.role_service import RoleInUseError, RoleProtectionError
 
 
 router = APIRouter(
@@ -44,6 +44,8 @@ def delete_role(role_id: uuid.UUID, db: Session = Depends(get_db)):
         role_service.delete_role(db, role_id)
     except RoleProtectionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except ValueError as exc:  # noqa: BLE001
+    except RoleInUseError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ValueError as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return None

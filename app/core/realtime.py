@@ -22,16 +22,26 @@ class RealtimeEvent:
 class EntryEventBroker:
     """In-memory fan-out broker for entry change events."""
 
-    def __init__(self) -> None:
+    def __init__(self, queue_size: int = 128) -> None:
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._lock = asyncio.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._queue_size = max(0, queue_size)
+
+    def configure(self, *, queue_size: int | None = None) -> None:
+        if queue_size is not None:
+            self._queue_size = max(0, queue_size)
 
     def set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
 
     async def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=128)
+        queue: asyncio.Queue[dict[str, Any]]
+        maxsize = self._queue_size
+        if maxsize <= 0:
+            queue = asyncio.Queue()
+        else:
+            queue = asyncio.Queue(maxsize=maxsize)
         async with self._lock:
             self._subscribers.add(queue)
         return queue
@@ -48,13 +58,18 @@ class EntryEventBroker:
             try:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
-                try:
-                    queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
-                try:
-                    queue.put_nowait(message)
-                except asyncio.QueueFull:
+                pushed = False
+                while not pushed:
+                    try:
+                        queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    try:
+                        queue.put_nowait(message)
+                        pushed = True
+                    except asyncio.QueueFull:
+                        continue
+                if not pushed:
                     stale.append(queue)
             except RuntimeError:
                 stale.append(queue)
