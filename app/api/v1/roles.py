@@ -25,7 +25,10 @@ def list_roles(db: Session = Depends(get_db)):
 
 @router.post("/", response_model=RoleOut, status_code=status.HTTP_201_CREATED)
 def create_role(payload: RoleCreate, db: Session = Depends(get_db)):
-    return role_service.create_role(db, payload)
+    try:
+        return role_service.create_role(db, payload)
+    except RoleProtectionError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.put("/{role_id}", response_model=RoleOut)

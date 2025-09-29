@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sqlalchemy import func
+
 from app.db.session import SessionLocal
 from app.models.category import CategoryGroup, SubCategory
 from app.models.metric import Metric
@@ -9,6 +11,8 @@ from app.models.user import User
 from loginpage import hash_password
 
 DEFAULT_METRICS = ["ltr", "kg", "gm", "nos"]
+
+VIEW_ROLE_NAME = "view"
 
 DEFAULT_GROUPS = {
     "Raw Materials": ["Herbs", "Powders"],
@@ -67,6 +71,84 @@ def seed() -> None:
             admin_role.can_edit_entry_sfg = True
             admin_role.can_edit_entry_fg = True
             admin_role.can_edit_add_item = True
+
+        view_role = (
+            db.query(Role)
+            .filter(func.lower(Role.name) == VIEW_ROLE_NAME)
+            .one_or_none()
+        )
+        if not view_role:
+            view_role = Role(
+                name="View",
+                can_view_dashboard=True,
+                can_view_add_item=True,
+                can_view_raw=True,
+                can_view_sfg=True,
+                can_view_fg=True,
+                can_view_manage_data=True,
+                can_view_users=True,
+                can_manage_users=False,
+                can_manage_roles=False,
+                can_import_master_data=False,
+                can_add_entry_raw=False,
+                can_add_entry_sfg=False,
+                can_add_entry_fg=False,
+                can_edit_entry_raw=False,
+                can_edit_entry_sfg=False,
+                can_edit_entry_fg=False,
+                can_edit_manage_data=False,
+                can_edit_add_item=False,
+                can_bulk_edit_delete_add_item=False,
+                can_bulk_edit_delete_raw=False,
+                can_bulk_edit_delete_sfg=False,
+                can_bulk_edit_delete_fg=False,
+                can_export_dashboard_summary=False,
+                can_export_dashboard_entries=False,
+                can_view_dashboard_cards=True,
+                can_open_dashboard_modal=True,
+                dashboard_scope=DashboardScope.ORG,
+                entry_scope=EntryScope.ORG,
+                add_item_scope=DashboardScope.ORG,
+                raw_scope=EntryScope.ORG,
+                sfg_scope=EntryScope.ORG,
+                fg_scope=EntryScope.ORG,
+            )
+            db.add(view_role)
+            db.flush()
+        else:
+            view_role.name = "View"
+            view_role.can_view_dashboard = True
+            view_role.can_view_add_item = True
+            view_role.can_view_raw = True
+            view_role.can_view_sfg = True
+            view_role.can_view_fg = True
+            view_role.can_view_manage_data = True
+            view_role.can_view_users = True
+            view_role.can_manage_users = False
+            view_role.can_manage_roles = False
+            view_role.can_import_master_data = False
+            view_role.can_add_entry_raw = False
+            view_role.can_add_entry_sfg = False
+            view_role.can_add_entry_fg = False
+            view_role.can_edit_entry_raw = False
+            view_role.can_edit_entry_sfg = False
+            view_role.can_edit_entry_fg = False
+            view_role.can_edit_manage_data = False
+            view_role.can_edit_add_item = False
+            view_role.can_bulk_edit_delete_add_item = False
+            view_role.can_bulk_edit_delete_raw = False
+            view_role.can_bulk_edit_delete_sfg = False
+            view_role.can_bulk_edit_delete_fg = False
+            view_role.can_export_dashboard_summary = False
+            view_role.can_export_dashboard_entries = False
+            view_role.can_view_dashboard_cards = True
+            view_role.can_open_dashboard_modal = True
+            view_role.dashboard_scope = DashboardScope.ORG
+            view_role.entry_scope = EntryScope.ORG
+            view_role.add_item_scope = DashboardScope.ORG
+            view_role.raw_scope = EntryScope.ORG
+            view_role.sfg_scope = EntryScope.ORG
+            view_role.fg_scope = EntryScope.ORG
 
         admin_user = db.query(User).filter(User.username == "Admin").one_or_none()
         if not admin_user:

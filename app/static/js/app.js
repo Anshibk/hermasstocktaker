@@ -6,6 +6,7 @@ const uid = (p = "id") => `${p}_${Math.random().toString(36).slice(2, 9)}`;
 const STORAGE_KEY = "hermas_state_v1";
 const STORAGE_VERSION = 1;
 const ENTRY_DRAFT_KEYS = ["raw", "sfg", "fg"];
+const VIEW_ROLE_NAME = "view";
 
 function sanitizeDateRangeSnapshot(range) {
   if (!range || typeof range !== "object") {
@@ -89,6 +90,12 @@ function isAdminRoleActive() {
   if (typeof state === "undefined" || !state) return false;
   const role = String(state.currentUser?.role || "");
   return role.toLowerCase() === "admin";
+}
+
+function isViewRoleActive() {
+  if (typeof state === "undefined" || !state) return false;
+  const role = String(state.currentUser?.role || "");
+  return role.toLowerCase() === VIEW_ROLE_NAME;
 }
 
 function isRealtimeRouteActive() {
@@ -918,6 +925,12 @@ function normalizeScopeValue(value,fallback='OWN'){
   return normalized === "ORG" ? "ORG" : "OWN";
 }
 
+function isViewRole(role){
+  if(!role) return false;
+  const name = typeof role.name === "string" ? role.name : "";
+  return name.toLowerCase() === VIEW_ROLE_NAME;
+}
+
 function scopeToBackend(value){
   return value === "ORG" ? "org" : "own";
 }
@@ -930,13 +943,22 @@ function ensureRoleMeta(role){
   if(typeof role.meta.can_manage_roles !== "boolean"){
     role.meta.can_manage_roles = !!deepGet(role,"pv.users");
   }
+  if(typeof role.meta.can_edit_manage_data !== "boolean"){
+    role.meta.can_edit_manage_data = !!deepGet(role,"pv.manageData");
+  }
   if(typeof role.meta.can_view_dashboard_cards !== "boolean"){
     role.meta.can_view_dashboard_cards = true;
   }
   if(typeof role.meta.can_open_dashboard_modal !== "boolean"){
     role.meta.can_open_dashboard_modal = true;
   }
-  role.meta.isAdmin = String(role.name||"").toLowerCase()==='admin';
+  const nameLower = String(role.name||"").toLowerCase();
+  role.meta.isAdmin = nameLower==='admin';
+  role.meta.isView = nameLower===VIEW_ROLE_NAME;
+  role.meta.isProtected = !!(role.meta.isAdmin || role.meta.isView);
+  if(role.meta.isView){
+    role.meta.can_edit_manage_data = false;
+  }
   if(!role.sc || typeof role.sc !== "object"){
     role.sc={dashboard:'OWN',addItem:'OWN',raw:'OWN',sfg:'OWN',fg:'OWN'};
   }else{
@@ -944,7 +966,7 @@ function ensureRoleMeta(role){
       role.sc[key]=normalizeScopeValue(role.sc[key]);
     });
   }
-  if(!role.meta.isAdmin){
+  if(!role.meta.isAdmin && !role.meta.isView){
     role.sc.dashboard='OWN';
     role.sc.addItem='OWN';
     role.sc.raw='OWN';
@@ -1004,9 +1026,11 @@ function mapRoleFromApi(role){
     meta:{
       can_manage_users: !!role.can_manage_users,
       can_manage_roles: !!role.can_manage_roles,
+      can_edit_manage_data: role.can_edit_manage_data !== undefined ? !!role.can_edit_manage_data : !!role.can_view_manage_data,
       can_view_dashboard_cards: role.can_view_dashboard_cards !== undefined ? !!role.can_view_dashboard_cards : true,
       can_open_dashboard_modal: role.can_open_dashboard_modal !== undefined ? !!role.can_open_dashboard_modal : true,
       isAdmin: String(role.name||"").toLowerCase()==='admin',
+      isView: String(role.name||"").toLowerCase()===VIEW_ROLE_NAME,
     },
   };
   result.ei.exportData = result.ei.exportWithMaster || result.ei.exportValuated;
@@ -1034,9 +1058,12 @@ function createBlankRole(name){
     meta:{
       can_manage_users:false,
       can_manage_roles:false,
+      can_edit_manage_data:false,
       can_view_dashboard_cards:true,
       can_open_dashboard_modal:true,
       isAdmin:false,
+      isView:false,
+      isProtected:false,
     },
   };
   return ensureRoleMeta(role);
@@ -1079,7 +1106,11 @@ function mapRoleToPayload(role){
     payload.can_manage_users = false;
     payload.can_manage_roles = false;
   }
-  payload.can_edit_manage_data = payload.can_view_manage_data;
+  if (role.meta && typeof role.meta.can_edit_manage_data === "boolean") {
+    payload.can_edit_manage_data = !!role.meta.can_edit_manage_data;
+  } else {
+    payload.can_edit_manage_data = payload.can_view_manage_data;
+  }
   const isAdminRole = !!role.meta?.isAdmin;
   const scDashboard = normalizeScopeValue(deepGet(role,'sc.dashboard'));
   const scAddItem = normalizeScopeValue(deepGet(role,'sc.addItem'));
@@ -1119,6 +1150,15 @@ function uniqueRoleName(base){
   return candidate;
 }
 
+function getManageableRoles(){
+  return (state.roles||[]).filter(role=>!isViewRole(role));
+}
+
+function getFirstManageableRoleId(){
+  const roles=getManageableRoles();
+  return roles.length ? (roles[0].id || "") : "";
+}
+
 function roleKey(role){
   if(!role) return "";
   return role.id || role.tempId || "";
@@ -1128,8 +1168,9 @@ function syncRoleSelection(){
   if(usersUi.roleDraft && !usersUi.roleDraft.id && usersUi.roleDirty){
     return;
   }
+  const roles = getManageableRoles();
   if(usersUi.selectedRoleKey){
-    const current=state.roles.find(r=>r.id===usersUi.selectedRoleKey);
+    const current=roles.find(r=>r.id===usersUi.selectedRoleKey);
     if(current){
       usersUi.roleOriginal=deepClone(current);
       usersUi.roleDraft=deepClone(current);
@@ -1138,8 +1179,8 @@ function syncRoleSelection(){
       return;
     }
   }
-  if(state.roles.length){
-    const first=state.roles[0];
+  if(roles.length){
+    const first=roles[0];
     usersUi.selectedRoleKey=first.id;
     usersUi.roleOriginal=deepClone(first);
     usersUi.roleDraft=deepClone(first);
@@ -1214,7 +1255,7 @@ async function closeRolesModal() {
       usersUi.roleDraft = null;
       usersUi.roleOriginal = null;
       usersUi.roleDirty = false;
-      usersUi.selectedRoleKey = state.roles[0]?.id || "";
+      usersUi.selectedRoleKey = getFirstManageableRoleId();
       if (usersUi.selectedRoleKey) {
         syncRoleSelection();
       }
@@ -1291,7 +1332,7 @@ async function deleteRoleDraft() {
     usersUi.roleDraft = null;
     usersUi.roleOriginal = null;
     usersUi.roleDirty = false;
-    usersUi.selectedRoleKey = state.roles[0]?.id || "";
+    usersUi.selectedRoleKey = getFirstManageableRoleId();
     if (usersUi.selectedRoleKey) {
       syncRoleSelection();
     } else {
@@ -1358,8 +1399,9 @@ function discardRoleDraft() {
     usersUi.roleDraft = null;
     usersUi.roleOriginal = null;
     usersUi.roleDirty = false;
-    if (state.roles.length) {
-      usersUi.selectedRoleKey = state.roles[0].id;
+    const firstId = getFirstManageableRoleId();
+    if (firstId) {
+      usersUi.selectedRoleKey = firstId;
       syncRoleSelection();
     } else {
       renderUsersPage();
@@ -1388,6 +1430,11 @@ function updateRoleField(path, value) {
     deepSet(usersUi.roleDraft, path, !!value);
     usersUi.roleDraft.meta.can_manage_users = !!value;
     usersUi.roleDraft.meta.can_manage_roles = !!value;
+  } else if (path === "pv.manageData") {
+    deepSet(usersUi.roleDraft, path, !!value);
+    if (usersUi.roleDraft.meta) {
+      usersUi.roleDraft.meta.can_edit_manage_data = !!value;
+    }
   } else if (path === "ei.exportData") {
     deepSet(usersUi.roleDraft, path, !!value);
     if (!value) {
@@ -1482,7 +1529,7 @@ function renderUsersPage() {
     : `<tr><td colspan="6" class="px-5 py-6 text-center text-sm text-slate-500">No users yet.</td></tr>`;
 
   const roleDraft = usersUi.roleDraft ? ensureRoleMeta(usersUi.roleDraft) : null;
-  const roleList = state.roles.slice();
+  const roleList = getManageableRoles().slice();
   if (roleDraft && !roleDraft.id && usersUi.selectedRoleKey === roleDraft.tempId) {
     roleList.push(roleDraft);
   }
@@ -1619,16 +1666,21 @@ function renderUsersPage() {
       ["sfg", "Semi Finished"],
       ["fg", "Finished Goods"],
     ];
-    const renderActionGroup = (groupKey, title) => `
+    const renderActionGroup = (groupKey, title) => {
+      const modules = (groupKey === 'edit' && !(roleDraft?.id))
+        ? actionModules.filter(([key]) => key !== 'addItem')
+        : actionModules;
+      return `
           <div class="mb-2 font-medium text-slate-700">${title}</div>
           <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
-            ${actionModules
+            ${modules
               .map(([key, label]) => {
                 const checked = !!deepGet(roleDraft, `act.${groupKey}.${key}`);
                 return `<label class="flex items-center gap-2"><input data-k="act.${groupKey}.${key}" type="checkbox" class="h-4 w-4"${checked ? ' checked' : ''}${checkboxDisabledAttr}><span>${H(label)}</span></label>`;
               })
               .join("")}
           </div>`;
+    };
 
     actionsPanel = `
       <div class="panel ${roleTab === 'actions' ? 'active' : ''}" data-panel="actions">
@@ -2062,8 +2114,10 @@ function applyBootstrap(payload){
   const user=payload.user||{};
   state.currentUser=user;
   state.currentUserId=user.id?String(user.id):state.currentUserId;
-  state.permissions = user.permissions || state.permissions || {};
-  if (state.permissions) {
+  const previousPermissions = state.permissions && typeof state.permissions === "object" ? state.permissions : {};
+  const rawPermissions = user.permissions && typeof user.permissions === "object" ? user.permissions : previousPermissions;
+  state.permissions = { ...previousPermissions, ...rawPermissions };
+  if (typeof state.permissions.can_edit_manage_data !== "boolean" && typeof state.permissions.can_view_manage_data === "boolean") {
     state.permissions.can_edit_manage_data = !!state.permissions.can_view_manage_data;
   }
   state.sessions = Array.isArray(payload.sessions)?payload.sessions.map(s=>({
@@ -2528,7 +2582,12 @@ function renderApp(){
     ["manage","Manage Data","can_view_manage_data"],
     ["users","Users","can_view_users"],
   ];
-  const availableNav=navConfig.filter(([,,perm])=>perm?!!state.permissions?.[perm]:true);
+  const availableNav=navConfig.filter(([key,,perm])=>{
+    if(isViewRoleActive() && (key==='manage' || key==='users')){
+      return false;
+    }
+    return perm?!!state.permissions?.[perm]:true;
+  });
   if(!availableNav.length){
     root.innerHTML = `
       <div class="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-500">
@@ -2826,7 +2885,7 @@ function renderApp(){
       usersUi.roleTab="visibility";
       usersUi.roleDraft=null;
       usersUi.roleOriginal=null;
-      usersUi.selectedRoleKey=state.roles[0]?.id||"";
+      usersUi.selectedRoleKey=getFirstManageableRoleId();
     }
     syncHistory();
     renderRoute();
@@ -4153,7 +4212,7 @@ const renderFGPage=()=>renderEntryPage('FG');
 /* ============== Manage Data (unchanged; now also covers Raw subs) ============== */
 function renderManagePage(){
   const page=$("#page");
-  const canEditManage=!!state.permissions?.can_view_manage_data;
+  const canEditManage=!!state.permissions?.can_edit_manage_data;
   page.innerHTML=`
     <h1 class="text-2xl md:text-3xl font-bold text-slate-900 mb-4">Manage Data</h1>
     <div class="border-b border-slate-200 mb-6">
@@ -4346,7 +4405,7 @@ function paintSubs(){
   const list=$("#sub_list");
   if(!list) return;
   const subs=Array.isArray(state.subcategories)?state.subcategories:[];
-    const canEdit=!!state.permissions?.can_view_manage_data;
+    const canEdit=!!state.permissions?.can_edit_manage_data;
   if(!canEdit){
     ui.editItemId.manage_sub="";
   }
@@ -4435,7 +4494,7 @@ function paintSubs(){
 function paintLocations(){
   const list=$("#loc_list"); if(!list) return;
   const locations=Array.isArray(state.locations)?state.locations:[];
-    const canEdit=!!state.permissions?.can_view_manage_data;
+    const canEdit=!!state.permissions?.can_edit_manage_data;
   if(!canEdit){
     ui.editItemId.manage_loc="";
   }
@@ -4512,7 +4571,7 @@ function paintMetrics(){
   if(ui.editItemId.manage_metric && !metrics.some(m=>m.id===ui.editItemId.manage_metric)){
     ui.editItemId.manage_metric="";
   }
-    const canEdit=!!state.permissions?.can_view_manage_data;
+    const canEdit=!!state.permissions?.can_edit_manage_data;
   if(!canEdit){
     ui.editItemId.manage_metric="";
   }
