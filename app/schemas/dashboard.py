@@ -39,7 +39,7 @@ class DashboardDetailRow(BaseModel):
     category_name: Optional[str]
     batch: Optional[str]
     qty: float
-    warehouse: str
+    location: str
     price: float
     line_value: float
     created_at: datetime

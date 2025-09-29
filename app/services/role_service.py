@@ -24,6 +24,10 @@ class RoleProtectionError(Exception):
     """Raised when a protected role is modified in an unsupported way."""
 
 
+class RoleInUseError(Exception):
+    """Raised when attempting to delete a role that still has users."""
+
+
 def _is_admin_role(role: Role | None) -> bool:
     if not role or not role.name:
         return False
@@ -103,6 +107,6 @@ def delete_role(db: Session, role_id: uuid.UUID) -> None:
     if _is_admin_role(role):
         raise RoleProtectionError("Admin role cannot be deleted.")
     if role.users:
-        raise ValueError("Cannot delete role with assigned users")
+        raise RoleInUseError("Cannot delete role with assigned users")
     db.delete(role)
     db.commit()
