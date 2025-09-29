@@ -1,11 +1,11 @@
-"""add functional index for case-insensitive item lookups"""
+"""Add functional index for case-insensitive item lookups."""
 
 from alembic import op
 import sqlalchemy as sa
 
 
-revision = "2025_05_20_120500"
-down_revision = "2025_05_15_120000_add_entries_indexes"
+revision = "20250520120500"
+down_revision = "20250515120000"
 branch_labels = None
 depends_on = None
 
