@@ -22,13 +22,30 @@ def _combine_entry_datetime(entry_date: date | None, existing: datetime | None) 
     return datetime.combine(entry_date, base_time)
 
 
-def list_entries(db: Session, *, user_ids: list[uuid.UUID] | None = None, entry_type: EntryType | None = None) -> list[Entry]:
+def list_entries(
+    db: Session,
+    *,
+    user_ids: list[uuid.UUID] | None = None,
+    entry_type: EntryType | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[Entry], int]:
     query = db.query(Entry).options(selectinload(Entry.user))
     if user_ids is not None:
+        if not user_ids:
+            return [], 0
         query = query.filter(Entry.user_id.in_(user_ids))
     if entry_type:
         query = query.filter(Entry.type == entry_type)
-    return query.order_by(Entry.created_at.desc()).all()
+
+    total = query.count()
+    rows = (
+        query.order_by(Entry.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return rows, total
 
 
 def create_entry(db: Session, payload: EntryCreate, user_id: uuid.UUID) -> Entry:

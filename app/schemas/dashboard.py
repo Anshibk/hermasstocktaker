@@ -37,8 +37,11 @@ class DashboardDetailRow(BaseModel):
     username: str
     item_name: str
     category_name: Optional[str]
+    unit: Optional[str]
     batch: Optional[str]
     qty: float
+    mfg: Optional[str]
+    exp: Optional[str]
     location: str
     price: float
     line_value: float
@@ -53,3 +56,7 @@ class DashboardSummaryResponse(BaseModel):
 class DashboardDetailResponse(BaseModel):
     item: DashboardItemInfo
     entries: list[DashboardDetailRow]
+    total: int
+    limit: int
+    offset: int
+    has_next: bool

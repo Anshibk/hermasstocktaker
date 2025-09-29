@@ -219,7 +219,12 @@ def table(db: Session, user_ids: list[uuid.UUID] | None) -> list[dict[str, Any]]
 
 
 def detail(
-    db: Session, user_ids: list[uuid.UUID] | None, item_id: uuid.UUID
+    db: Session,
+    user_ids: list[uuid.UUID] | None,
+    item_id: uuid.UUID,
+    *,
+    limit: int | None = 50,
+    offset: int = 0,
 ) -> dict[str, Any]:
     item_row = (
         db.query(
@@ -261,7 +266,12 @@ def detail(
     )
     if user_ids:
         query = query.filter(Entry.user_id.in_(user_ids))
-    rows = query.order_by(Entry.created_at.desc()).all()
+    total = query.count()
+
+    ordered_query = query.order_by(Entry.created_at.desc())
+    if limit is not None:
+        ordered_query = ordered_query.offset(offset).limit(limit)
+    rows = ordered_query.all()
 
     entries: list[dict[str, Any]] = []
     for row in rows:
@@ -286,6 +296,10 @@ def detail(
             }
         )
 
+    effective_limit = limit if limit is not None else total
+    effective_offset = offset if limit is not None else 0
+    has_next = False if limit is None else (effective_offset + len(entries) < total)
+
     return {
         "item": {
             "item_id": item_row.item_id,
@@ -293,6 +307,10 @@ def detail(
             "category_name": item_row.category_name,
         },
         "entries": entries,
+        "total": total,
+        "limit": effective_limit,
+        "offset": effective_offset,
+        "has_next": has_next,
     }
 
 

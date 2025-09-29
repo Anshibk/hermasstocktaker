@@ -18,7 +18,7 @@ from app.core.deps import (
 )
 from app.models.entry import Entry, EntryType
 from app.models.user import User
-from app.schemas.entry import EntryCreate, EntryOut, EntryUpdate
+from app.schemas.entry import EntryCreate, EntryOut, EntryPage, EntryUpdate
 from app.services import inventory_service
 from app.core.realtime import entry_event_broker
 
@@ -64,22 +64,27 @@ def _ensure_edit_permission(user: User, entry_type: EntryType) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
 
 
-@router.get("/", response_model=list[EntryOut])
+@router.get("/", response_model=EntryPage)
 def list_entries(
     entry_type: str | None = Query(default=None, alias="type"),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     type_filter = _parse_type(entry_type)
     visible_user_ids = resolve_entry_view_user_ids(db, current_user, type_filter)
     if visible_user_ids is not None and not visible_user_ids:
-        return []
-    entries = inventory_service.list_entries(
+        return EntryPage(items=[], total=0, limit=limit, offset=offset, has_next=False)
+    items, total = inventory_service.list_entries(
         db,
         user_ids=None if visible_user_ids is None else list(visible_user_ids),
         entry_type=type_filter,
+        limit=limit,
+        offset=offset,
     )
-    return entries
+    has_next = offset + len(items) < total
+    return EntryPage(items=items, total=total, limit=limit, offset=offset, has_next=has_next)
 
 
 @router.post("/", response_model=EntryOut, status_code=status.HTTP_201_CREATED)

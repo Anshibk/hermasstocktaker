@@ -41,6 +41,8 @@ def summary(db: Session = Depends(get_db), current_user: User = Depends(get_curr
 @router.get("/detail", response_model=DashboardDetailResponse)
 def detail(
     item_id: uuid.UUID = Query(...),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -50,7 +52,13 @@ def detail(
     if not db.get(Item, item_id):
         raise HTTPException(status_code=404, detail="Item not found")
 
-    detail_payload = dashboard_service.detail(db, scoped_ids, item_id)
+    detail_payload = dashboard_service.detail(
+        db,
+        scoped_ids,
+        item_id,
+        limit=limit,
+        offset=offset,
+    )
     if detail_payload.get("item") is None:
         raise HTTPException(status_code=404, detail="Item not found")
     return DashboardDetailResponse(**detail_payload)
@@ -72,7 +80,13 @@ def export_detail(
     if not db.get(Item, item_id):
         raise HTTPException(status_code=404, detail="Item not found")
 
-    detail_payload = dashboard_service.detail(db, scoped_ids, item_id)
+    detail_payload = dashboard_service.detail(
+        db,
+        scoped_ids,
+        item_id,
+        limit=None,
+        offset=0,
+    )
     if detail_payload.get("item") is None:
         raise HTTPException(status_code=404, detail="Item not found")
 

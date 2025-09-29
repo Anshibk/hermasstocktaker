@@ -74,4 +74,12 @@ class EntryUserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class EntryPage(BaseModel):
+    items: list[EntryOut]
+    total: int
+    limit: int
+    offset: int
+    has_next: bool
+
+
 EntryOut.model_rebuild()
