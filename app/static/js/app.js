@@ -2643,61 +2643,66 @@ function renderApp(){
 
         <div id="page" class="relative p-4 md:p-8 max-w-full mx-auto w-full">${loadingOverlay}</div>
         <div id="toast" class="fixed bottom-5 right-5 hidden bg-slate-900 text-white rounded-xl px-4 py-2.5 shadow-lg z-[60] font-semibold text-sm"></div>
-        <div id="dateRangeModal" class="date-modal${ui.dateRangeModalOpen ? ' show' : ''}">
+        <div id="dateRangeModal" class="modal${ui.dateRangeModalOpen ? ' show' : ''}">
           <div class="mask" data-close></div>
-          <div class="date-modal-dialog">
-            <div class="date-modal-header">
+          <div class="modal-dialog modal-dialog--sm">
+            <div class="modal-header">
               <div>
-                <h3 class="title">Filter by date</h3>
-                <p class="subtitle">Choose a period to view stock entries.</p>
+                <h3 class="modal-title">Filter by date</h3>
+                <p class="modal-subtitle">Choose a period to view stock entries.</p>
               </div>
-              <button type="button" class="close" data-close aria-label="Close">
+              <button type="button" class="modal-close" data-close aria-label="Close">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               </button>
             </div>
-            <div class="date-modal-body">
-              <div class="field">
+            <div class="modal-body modal-body--grid">
+              <div class="modal-field">
                 <label for="modalDateFrom">From</label>
                 <input type="date" id="modalDateFrom" value="${H((ui.dateRangeDraft?.from || getDateRange().from || ''))}" />
               </div>
-              <div class="field">
+              <div class="modal-field">
                 <label for="modalDateTo">To</label>
                 <input type="date" id="modalDateTo" value="${H((ui.dateRangeDraft?.to || getDateRange().to || ''))}" />
               </div>
             </div>
-            <div class="date-modal-footer">
-              <button type="button" class="btn-secondary" data-close>Cancel</button>
-              <button type="button" class="btn-secondary" id="dateRangeClear">Clear</button>
-              <button type="button" class="btn-primary" id="dateRangeApply">Apply</button>
+            <div class="modal-footer">
+              <button type="button" class="modal-btn secondary" data-close>Cancel</button>
+              <button type="button" class="modal-btn secondary" id="dateRangeClear">Clear</button>
+              <button type="button" class="modal-btn primary" id="dateRangeApply">Apply</button>
             </div>
           </div>
         </div>
-        <div id="confirmOverlay" class="fixed inset-0 z-[70] hidden">
-          <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
-          <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-[90vw]">
-            <div class="px-6 py-5">
-              <h3 class="text-lg font-semibold text-slate-900 mb-3">Please Confirm</h3>
-              <p id="confirmMessage" class="text-sm text-slate-600 leading-relaxed"></p>
-            </div>
-            <div class="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200">
-              <button type="button" id="confirmCancel" class="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-white">Cancel</button>
-              <button type="button" id="confirmOk" class="px-4 py-2 rounded-lg bg-cyan-600 text-white text-sm font-semibold hover:bg-cyan-700">Confirm</button>
-            </div>
-          </div>
-        </div>
-        <div id="exportOverlay" class="fixed inset-0 z-[75] hidden">
-          <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" data-close></div>
-          <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl border border-slate-200 w-[min(92vw,480px)]">
-            <div class="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-200">
-              <div>
-                <h3 class="text-lg font-semibold text-slate-900">Export dashboard</h3>
-                <p class="text-sm text-slate-600 mt-1">Do you want to include all master items?</p>
-              </div>
-              <button type="button" class="p-2 rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition" data-close>
+        <div id="confirmOverlay" class="modal modal--confirm">
+          <div class="mask" data-close></div>
+          <div class="modal-dialog modal-dialog--sm">
+            <div class="modal-header">
+              <h3 class="modal-title">Please confirm</h3>
+              <button type="button" class="modal-close" data-close aria-label="Close">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               </button>
             </div>
-            <form id="exportForm" class="px-6 py-5 space-y-4">
+            <div class="modal-body">
+              <p id="confirmMessage" class="text-sm text-slate-600 leading-relaxed"></p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" id="confirmCancel" class="modal-btn secondary">Cancel</button>
+              <button type="button" id="confirmOk" class="modal-btn primary">Confirm</button>
+            </div>
+          </div>
+        </div>
+        <div id="exportOverlay" class="modal modal--export">
+          <div class="mask" data-close></div>
+          <div class="modal-dialog modal-dialog--md">
+            <div class="modal-header">
+              <div>
+                <h3 class="modal-title">Export dashboard</h3>
+                <p class="modal-subtitle">Do you want to include all master items?</p>
+              </div>
+              <button type="button" class="modal-close" data-close aria-label="Close">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            <form id="exportForm" class="modal-body space-y-4">
               <label class="flex items-start gap-3 p-3 border border-slate-200 rounded-xl hover:border-cyan-400 transition cursor-pointer">
                 <input type="radio" name="exportMode" value="with-master" class="mt-1.5 h-4 w-4 text-cyan-600 focus:ring-cyan-500" checked>
                 <span>
@@ -2713,11 +2718,11 @@ function renderApp(){
                 </span>
               </label>
               <p class="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">Scope: Uses the active stock-taking period.</p>
-              <div class="flex justify-end gap-3 pt-2">
-                <button type="button" class="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-white" data-close>Cancel</button>
-                <button type="button" id="exportSubmit" class="px-4 py-2 rounded-lg bg-cyan-600 text-white text-sm font-semibold hover:bg-cyan-700 transition">Export</button>
-              </div>
             </form>
+            <div class="modal-footer">
+              <button type="button" class="modal-btn secondary" data-close>Cancel</button>
+              <button type="button" id="exportSubmit" class="modal-btn primary">Export</button>
+            </div>
           </div>
         </div>
       </main>
@@ -2821,10 +2826,13 @@ function renderApp(){
   if(confirmOverlay){
     const cancelBtn=$("#confirmCancel");
     const okBtn=$("#confirmOk");
-    const backdrop=confirmOverlay.querySelector(':scope > div');
+    const backdrop=confirmOverlay.querySelector('.mask');
     if(cancelBtn) cancelBtn.onclick=()=>resolveConfirm(false);
     if(okBtn) okBtn.onclick=()=>resolveConfirm(true);
     if(backdrop) backdrop.onclick=()=>resolveConfirm(false);
+    confirmOverlay.querySelectorAll('[data-close]').forEach(btn=>{
+      btn.onclick=()=>resolveConfirm(false);
+    });
   }
   const exportOverlay=$("#exportOverlay");
   if(exportOverlay){
@@ -4693,7 +4701,7 @@ function showDashboardExportDialog(){
     const first=form.querySelector('input[name="exportMode"]');
     if(first) first.checked=true;
   }
-  overlay.classList.remove('hidden');
+  overlay.classList.add('show');
   const body=document.body;
   if(body) body.classList.add('overflow-hidden');
   if(exportDialogKeyHandler){
@@ -4705,7 +4713,7 @@ function showDashboardExportDialog(){
 function hideDashboardExportDialog(){
   const overlay=$("#exportOverlay");
   if(overlay){
-    overlay.classList.add('hidden');
+    overlay.classList.remove('show');
   }
   const body=document.body;
   if(body) body.classList.remove('overflow-hidden');
@@ -4725,7 +4733,7 @@ let confirmKeyHandler=null;
 function resolveConfirm(result){
   const overlay=$("#confirmOverlay");
   if(overlay){
-    overlay.classList.add("hidden");
+    overlay.classList.remove("show");
   }
   const body=document.body;
   if(body) body.classList.remove("overflow-hidden");
@@ -4744,7 +4752,7 @@ function confirmDialog(message){
   const messageEl=$("#confirmMessage");
   if(!overlay||!messageEl) return Promise.resolve(false);
   messageEl.textContent=message;
-  overlay.classList.remove("hidden");
+  overlay.classList.add("show");
   const body=document.body;
   if(body) body.classList.add("overflow-hidden");
   return new Promise(resolve=>{
