@@ -18,9 +18,15 @@ from app.core.deps import (
 )
 from app.models.entry import Entry, EntryType
 from app.models.user import User
-from app.schemas.entry import EntryCreate, EntryOut, EntryPage, EntryUpdate
+from app.schemas.entry import (
+    EntryBulkDeleteRequest,
+    EntryCreate,
+    EntryOut,
+    EntryPage,
+    EntryUpdate,
+)
 from app.services import inventory_service
-from app.core.realtime import entry_event_broker
+from app.core.realtime import entry_event_broker, notify_entry_deleted
 
 router = APIRouter(prefix="/entries", tags=["entries"])
 
@@ -107,6 +113,55 @@ def update_entry(entry_id: uuid.UUID, payload: EntryUpdate, db: Session = Depend
     if allowed_user_ids is not None and entry.user_id not in allowed_user_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return inventory_service.update_entry(db, entry_id, payload)
+
+
+@router.delete("/bulk", status_code=status.HTTP_204_NO_CONTENT)
+def bulk_delete_entries(
+    payload: EntryBulkDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    entry_ids = payload.entry_ids or []
+    if not entry_ids:
+        return None
+
+    entries = (
+        db.query(Entry)
+        .filter(Entry.id.in_(entry_ids))
+        .all()
+    )
+
+    found_map: dict[uuid.UUID, Entry] = {entry.id: entry for entry in entries}
+    missing = [str(entry_id) for entry_id in entry_ids if entry_id not in found_map]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"missing_entry_ids": missing},
+        )
+
+    ordered_entries = [found_map[entry_id] for entry_id in entry_ids]
+
+    permissions_cache: dict[EntryType, set[uuid.UUID] | None] = {}
+    for entry in ordered_entries:
+        _ensure_bulk_permission(current_user, entry.type)
+        allowed = permissions_cache.get(entry.type)
+        if entry.type not in permissions_cache:
+            resolved = resolve_entry_edit_user_ids(db, current_user, entry.type)
+            allowed = None if resolved is None else set(resolved)
+            permissions_cache[entry.type] = allowed
+        if allowed is not None and entry.user_id not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden",
+            )
+
+    deleted = inventory_service.delete_entries_bulk(db, [entry.id for entry in ordered_entries])
+    if deleted:
+        for entry in ordered_entries:
+            entry_id_str = str(entry.id)
+            entry_type = str(getattr(entry.type, "value", entry.type)).lower()
+            notify_entry_deleted(entry_id_str, entry_type)
+    return None
 
 
 @router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -4,6 +4,8 @@ import uuid
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 
+from typing import Sequence
+
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.realtime import notify_entry_created, notify_entry_deleted, notify_entry_updated
@@ -96,3 +98,28 @@ def delete_entry(db: Session, entry_id: uuid.UUID) -> None:
     db.delete(entry)
     db.commit()
     notify_entry_deleted(entry_id, entry_type)
+
+
+def delete_entries_bulk(db: Session, entry_ids: Sequence[uuid.UUID]) -> int:
+    """Delete multiple entries in a single transaction."""
+
+    seen: set[uuid.UUID] = set()
+    ids: list[uuid.UUID] = []
+    for entry_id in entry_ids:
+        if not entry_id:
+            continue
+        normalized = uuid.UUID(str(entry_id))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        ids.append(normalized)
+    if not ids:
+        return 0
+
+    deleted = (
+        db.query(Entry)
+        .filter(Entry.id.in_(ids))
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return deleted

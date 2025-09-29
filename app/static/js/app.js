@@ -421,7 +421,7 @@ const api = {
   get: (path) => apiRequest(path),
   post: (path, body, options = {}) => apiRequest(path, { method: "POST", body, ...options }),
   put: (path, body, options = {}) => apiRequest(path, { method: "PUT", body, ...options }),
-  delete: (path) => apiRequest(path, { method: "DELETE" }),
+  delete: (path, body, options = {}) => apiRequest(path, { method: "DELETE", body, ...options }),
 };
 
 /* ============== Domain constants ============== */
@@ -951,10 +951,9 @@ async function deleteEntriesForItem(itemId){
   if(!itemId) return;
   const idStr=String(itemId);
   const related=state.lines.filter(line=>line.itemId===idStr);
-  for(const entry of related){
-    if(!entry?.id) continue;
-    await api.delete(`/entries/${encodeURIComponent(entry.id)}`);
-  }
+  const ids = related.map((entry)=>entry?.id).filter(Boolean);
+  if(!ids.length) return;
+  await api.delete('/entries/bulk', { entry_ids: ids });
 }
 
 async function refreshLocations(){
@@ -3912,9 +3911,7 @@ function renderEntryPage(type){
     const button=deleteBulkBtn;
     try{
       if(button) button.disabled=true;
-      for(const entryId of ids){
-        await api.delete(`/entries/${encodeURIComponent(entryId)}`);
-      }
+      await api.delete('/entries/bulk', { entry_ids: ids });
       await refreshEntries(type);
       bulkSelected[key].clear();
       bulkMode[key]=false;
