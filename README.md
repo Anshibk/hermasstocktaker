@@ -38,3 +38,14 @@ Converted from the single-file HTML application into a FastAPI + PostgreSQL back
    ```
 
 The default administrator account is `Admin` / `adminthegreat`.
+
+### Updating Tailwind styles
+
+The application no longer pulls Tailwind CSS from a CDN so that the UI works on networks without external internet access. If you
+change template markup and need to rebuild the bundled stylesheet, run:
+
+```bash
+npx tailwindcss@3.4.10 -i app/static/css/tailwind-input.css -o app/static/css/tailwind.css --minify
+```
+
+The Tailwind configuration lives in `tailwind.config.js`.
