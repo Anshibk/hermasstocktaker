@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
-from typing import Any
+from typing import Any, Iterable, Iterator, Sequence
 
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, LineChart, PieChart, Reference
@@ -119,6 +119,30 @@ def _summarise_qty_strings(pairs: list[tuple[float, str | None]]) -> str:
         if totals[key]
     ]
     return " + ".join(parts) if parts else "0"
+
+
+def _stream_entry_rows(query, chunk_size: int = 500) -> Iterator[dict[str, Any]]:
+    stream = (
+        query.execution_options(stream_results=True)
+        .yield_per(chunk_size)
+    )
+    for row in stream:
+        yield {
+            "entry_id": row.entry_id,
+            "item_id": row.item_id,
+            "username": row.username,
+            "item_name": row.item_name,
+            "category_name": row.category_name,
+            "batch": row.batch,
+            "mfg": row.mfg,
+            "exp": row.exp,
+            "qty": _decimal_to_float(row.qty),
+            "unit": row.unit,
+            "location": row.location,
+            "price": None if row.price is None else _decimal_to_float(row.price),
+            "line_value": _decimal_to_float(row.line_value),
+            "created_at": row.created_at,
+        }
 
 
 def cards(db: Session, user_ids: list[uuid.UUID] | None) -> list[dict[str, Any]]:
@@ -347,13 +371,12 @@ def _normalise_group_name(value: str | None) -> str:
 
 
 def _compute_group_and_subcategory_stats(
-    export_items: list[dict[str, Any]]
+    summaries: Sequence[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     group_map: dict[str, dict[str, Any]] = {}
     subcategory_map: dict[str, dict[str, Any]] = {}
 
-    for item in export_items:
-        summary = item.get("summary", {})
+    for summary in summaries:
         group_name = _normalise_group_name(summary.get("group_name"))
         subcategory_name = (summary.get("category_name") or "").strip() or "Uncategorised"
 
@@ -411,7 +434,7 @@ def _compute_group_and_subcategory_stats(
 
 
 def _build_master_item_sheet(
-    workbook: Workbook, export_items: list[dict[str, Any]], generated_label: str
+    workbook: Workbook, summaries: Sequence[dict[str, Any]], generated_label: str
 ) -> None:
     sheet = workbook.active
     sheet.title = "Master_Item_wise_report"
@@ -440,7 +463,7 @@ def _build_master_item_sheet(
     header_row = _style_header_row(sheet, headers, start_row=4)
     sheet.freeze_panes = sheet[f"A{header_row}"]
 
-    if not export_items:
+    if not summaries:
         empty_cell = sheet.cell(row=header_row, column=1)
         empty_cell.value = "No items available"
         empty_cell.alignment = Alignment(horizontal="left")
@@ -448,8 +471,7 @@ def _build_master_item_sheet(
         _autofit_columns(sheet, 7)
         return
 
-    for index, item in enumerate(export_items, start=1):
-        summary = item.get("summary", {})
+    for index, summary in enumerate(summaries, start=1):
         row_idx = header_row + index - 1
         zebra = index % 2 == 0
 
@@ -483,7 +505,9 @@ def _build_master_item_sheet(
 
 
 def _build_master_entries_sheet(
-    workbook: Workbook, export_items: list[dict[str, Any]], generated_label: str
+    workbook: Workbook,
+    detail_rows: Iterable[dict[str, Any]],
+    generated_label: str,
 ) -> None:
     sheet = workbook.create_sheet(title="Master_logged_entries_report")
 
@@ -516,11 +540,10 @@ def _build_master_entries_sheet(
     header_row = _style_header_row(sheet, headers, start_row=4)
     sheet.freeze_panes = sheet[f"A{header_row}"]
 
-    line_number = 1
-    for item in export_items:
-        for entry in item.get("entries", []):
-            row_idx = header_row + line_number - 1
-            zebra = line_number % 2 == 0
+    line_number = 0
+    for line_number, entry in enumerate(detail_rows, start=1):
+        row_idx = header_row + line_number - 1
+        zebra = line_number % 2 == 0
             category_display = entry.get("category_name") or "—"
             location_display = entry.get("location") or "—"
             batch_display = entry.get("batch") or "—"
@@ -549,19 +572,17 @@ def _build_master_entries_sheet(
                 (12, entry.get("line_value"), Alignment(horizontal="right"), CURRENCY_FORMAT),
             ]
 
-            for column, value, alignment, number_format in cells:
-                cell = sheet.cell(row=row_idx, column=column)
-                cell.value = value
-                cell.alignment = alignment
-                cell.border = ThinBorder
-                if zebra:
-                    cell.fill = ZebraFill
-                if number_format:
-                    cell.number_format = number_format
+        for column, value, alignment, number_format in cells:
+            cell = sheet.cell(row=row_idx, column=column)
+            cell.value = value
+            cell.alignment = alignment
+            cell.border = ThinBorder
+            if zebra:
+                cell.fill = ZebraFill
+            if number_format:
+                cell.number_format = number_format
 
-            line_number += 1
-
-    if line_number == 1:
+    if line_number == 0:
         empty_cell = sheet.cell(row=header_row, column=1)
         empty_cell.value = "No logged entries available"
         empty_cell.alignment = Alignment(horizontal="left")
@@ -920,7 +941,9 @@ def _build_valued_group_summary_sheet(
 
 
 def _build_valued_item_sheet(
-    workbook: Workbook, export_items: list[dict[str, Any]], generated_label: str
+    workbook: Workbook,
+    summaries: Sequence[dict[str, Any]],
+    generated_label: str,
 ) -> None:
     sheet = workbook.create_sheet(title="Valued_Item_wise_report")
 
@@ -948,7 +971,7 @@ def _build_valued_item_sheet(
     header_row = _style_header_row(sheet, headers, start_row=4)
     sheet.freeze_panes = sheet[f"A{header_row}"]
 
-    if not export_items:
+    if not summaries:
         empty_cell = sheet.cell(row=header_row, column=1)
         empty_cell.value = "No valuation data available"
         empty_cell.font = Font(color="64748B")
@@ -956,8 +979,7 @@ def _build_valued_item_sheet(
         _autofit_columns(sheet, 7)
         return
 
-    for index, item in enumerate(export_items, start=1):
-        summary = item.get("summary", {})
+    for index, summary in enumerate(summaries, start=1):
         row_idx = header_row + index - 1
         zebra = index % 2 == 0
 
@@ -987,7 +1009,7 @@ def _build_valued_item_sheet(
             if number_format:
                 cell.number_format = number_format
 
-    last_row = header_row + len(export_items) - 1
+    last_row = header_row + len(summaries) - 1
     if last_row >= header_row:
         qty_range = f"F{header_row}:F{last_row}"
         value_range = f"G{header_row}:G{last_row}"
@@ -1004,7 +1026,9 @@ def _build_valued_item_sheet(
 
 
 def _build_valued_entries_sheet(
-    workbook: Workbook, export_items: list[dict[str, Any]], generated_label: str
+    workbook: Workbook,
+    detail_rows: Iterable[dict[str, Any]],
+    generated_label: str,
 ) -> None:
     sheet = workbook.create_sheet(title="Valued_logged_entries_report")
 
@@ -1037,18 +1061,15 @@ def _build_valued_entries_sheet(
     header_row = _style_header_row(sheet, headers, start_row=4)
     sheet.freeze_panes = sheet[f"A{header_row}"]
 
-    line_number = 1
-    for item in export_items:
-        if not item.get("summary", {}).get("has_entries"):
-            continue
-        for entry in item.get("entries", []):
-            row_idx = header_row + line_number - 1
-            zebra = line_number % 2 == 0
-            category_display = entry.get("category_name") or "—"
-            location_display = entry.get("location") or "—"
-            batch_display = entry.get("batch") or "—"
-            cells = [
-                (1, line_number, Alignment(horizontal="center"), None),
+    line_number = 0
+    for line_number, entry in enumerate(detail_rows, start=1):
+        row_idx = header_row + line_number - 1
+        zebra = line_number % 2 == 0
+        category_display = entry.get("category_name") or "—"
+        location_display = entry.get("location") or "—"
+        batch_display = entry.get("batch") or "—"
+        cells = [
+            (1, line_number, Alignment(horizontal="center"), None),
                 (2, _format_date_label(entry.get("created_at")), Alignment(horizontal="center"), None),
                 (3, entry.get("username"), Alignment(horizontal="left"), None),
                 (4, entry.get("item_name"), Alignment(horizontal="left"), None),
@@ -1072,19 +1093,17 @@ def _build_valued_entries_sheet(
                 (12, entry.get("line_value"), Alignment(horizontal="right"), CURRENCY_FORMAT),
             ]
 
-            for column, value, alignment, number_format in cells:
-                cell = sheet.cell(row=row_idx, column=column)
-                cell.value = value
-                cell.alignment = alignment
-                cell.border = ThinBorder
-                if zebra:
-                    cell.fill = ZebraFill
-                if number_format:
-                    cell.number_format = number_format
+        for column, value, alignment, number_format in cells:
+            cell = sheet.cell(row=row_idx, column=column)
+            cell.value = value
+            cell.alignment = alignment
+            cell.border = ThinBorder
+            if zebra:
+                cell.fill = ZebraFill
+            if number_format:
+                cell.number_format = number_format
 
-            line_number += 1
-
-    if line_number == 1:
+    if line_number == 0:
         empty_cell = sheet.cell(row=header_row, column=1)
         empty_cell.value = "No valuation entries available"
         empty_cell.font = Font(color="64748B")
@@ -1370,27 +1389,7 @@ def export_dashboard(
         detail_query = detail_query.filter(Entry.user_id.in_(user_ids))
     if session_ids:
         detail_query = detail_query.filter(Entry.session_id.in_(session_ids))
-    detail_rows = detail_query.order_by(Item.name, Entry.created_at).all()
-
-    detail_map: dict[uuid.UUID, list[dict[str, Any]]] = {}
-    for row in detail_rows:
-        detail_map.setdefault(row.item_id, []).append(
-            {
-                "entry_id": row.entry_id,
-                "username": row.username,
-                "item_name": row.item_name,
-                "category_name": row.category_name,
-                "batch": row.batch,
-                "mfg": row.mfg,
-                "exp": row.exp,
-                "qty": _decimal_to_float(row.qty),
-                "unit": row.unit,
-                "location": row.location,
-                "price": None if row.price is None else _decimal_to_float(row.price),
-                "line_value": _decimal_to_float(row.line_value),
-                "created_at": row.created_at,
-            }
-        )
+    detail_query = detail_query.order_by(Item.name, Entry.created_at)
 
     items_data: dict[uuid.UUID, dict[str, Any]] = {}
     for row in base_items:
@@ -1430,34 +1429,14 @@ def export_dashboard(
     items_sorted = sorted(
         items_data.values(),
         key=lambda item: (
+            0 if item.get("has_entries") else 1,
             (item.get("item_name") or "").lower(),
             (item.get("category_name") or "").lower(),
         ),
     )
 
-    export_items: list[dict[str, Any]] = []
     for summary in items_sorted:
-        entries = detail_map.get(summary["item_id"], [])
-        has_entries = len(entries) > 0
-        if not has_entries and not include_master_items:
-            continue
-        summary_copy = summary.copy()
-        summary_copy["entries_logged"] = (
-            int(summary_copy.get("entries_logged") or 0)
-            if summary_copy.get("entries_logged") is not None
-            else 0
-        )
-        if not summary_copy["entries_logged"]:
-            summary_copy["entries_logged"] = len(entries)
-        summary_copy["has_entries"] = has_entries
-        export_items.append({"summary": summary_copy, "entries": entries})
-
-    export_items.sort(
-        key=lambda item: (
-            0 if item["summary"].get("has_entries") else 1,
-            (item["summary"].get("item_name") or "").lower(),
-        )
-    )
+        summary["entries_logged"] = int(summary.get("entries_logged") or 0)
 
     generated_label = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
     download_date = datetime.utcnow().strftime("%d-%b-%Y")
@@ -1465,12 +1444,14 @@ def export_dashboard(
     workbook = Workbook()
 
     if include_master_items:
-        _build_master_item_sheet(workbook, export_items, generated_label)
-        _build_master_entries_sheet(workbook, export_items, generated_label)
+        _build_master_item_sheet(workbook, items_sorted, generated_label)
+        detail_stream = _stream_entry_rows(detail_query)
+        _build_master_entries_sheet(workbook, detail_stream, generated_label)
         filename = f"Export with master items {download_date}.xlsx"
     else:
+        valued_items = [summary for summary in items_sorted if summary.get("has_entries")]
         group_summary, subcategory_summary = _compute_group_and_subcategory_stats(
-            export_items
+            valued_items
         )
         _build_valued_charts_sheet(
             workbook,
@@ -1481,8 +1462,9 @@ def export_dashboard(
         _build_valued_group_summary_sheet(
             workbook, group_summary, generated_label
         )
-        _build_valued_item_sheet(workbook, export_items, generated_label)
-        _build_valued_entries_sheet(workbook, export_items, generated_label)
+        _build_valued_item_sheet(workbook, valued_items, generated_label)
+        detail_stream = _stream_entry_rows(detail_query)
+        _build_valued_entries_sheet(workbook, detail_stream, generated_label)
         filename = f"Export valuated items {download_date}.xlsx"
 
     stream = BytesIO()
