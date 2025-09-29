@@ -3688,11 +3688,29 @@ function renderAddPage(){
       if(flt.add.group!=="all" && r.group!==flt.add.group) return false;
       if(flt.add.sub && r.sub!==flt.add.sub) return false;
       return true;
+    })
+    .sort((a,b)=>{
+      const aCat=(a.sub||a.group||"").toLocaleLowerCase();
+      const bCat=(b.sub||b.group||"").toLocaleLowerCase();
+      if(aCat!==bCat) return aCat.localeCompare(bCat);
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     });
     const ids=rows.map(r=>r.id);
-    $("#itemsBody").innerHTML=rows.map(r=>{
+    let currentCategoryKey=null;
+    const html=rows.map(r=>{
+      const labelRaw=r.sub||r.group||"Uncategorized";
+      const categoryKey=labelRaw.toLocaleLowerCase();
+      const showHeader=categoryKey!==currentCategoryKey;
+      if(showHeader){
+        currentCategoryKey=categoryKey;
+      }
       const highlightClass = getEntryHighlightClass(r.id);
       return `
+      ${showHeader?`
+        <tr class="bg-slate-100">
+          <td colspan="6" class="px-4 py-2 text-xs font-semibold tracking-wide text-slate-600 uppercase border-t border-slate-200">${H(labelRaw)}</td>
+        </tr>
+      `:""}
       <tr class="hover:bg-slate-50 transition-colors${highlightClass}">
         <td class="px-4 py-2.5 border-t border-slate-200 font-medium">${H(r.name)}</td>
         <td class="px-4 py-2.5 border-t border-slate-200 text-slate-500">${r.group||"—"}</td>
@@ -3704,6 +3722,7 @@ function renderAddPage(){
                          :canEditItems?`<button class="p-1.5 rounded-md text-slate-500 hover:bg-slate-200" title="Edit" data-edit="${H(r.id)}">✎</button>`:'<span class="text-xs text-slate-400">—</span>'}
         </td>
       </tr>`;}).join("");
+    $("#itemsBody").innerHTML=html;
     if(canEditItems){
       $$('[data-edit]').forEach(b=>b.onclick=()=>{ editItemId.add=b.getAttribute("data-edit"); addPanel.add=true; renderAddPage(); });
     }
