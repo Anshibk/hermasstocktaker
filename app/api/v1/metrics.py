@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import exists, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db, require_permission
@@ -26,9 +27,22 @@ def list_metrics(db: Session = Depends(get_db)):
 
 @router.post("/", response_model=MetricOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("can_edit_manage_data"))])
 def create_metric(payload: MetricCreate, db: Session = Depends(get_db)):
-    metric = Metric(**payload.dict())
+    normalized_name = (payload.name or "").strip()
+    if not normalized_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Metric name is required")
+    duplicate = (
+        db.query(exists().where(func.lower(Metric.name) == normalized_name.lower()))
+        .scalar()
+    )
+    if duplicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Metric name already exists")
+    metric = Metric(name=normalized_name)
     db.add(metric)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Metric name already exists") from exc
     db.refresh(metric)
     return metric
 

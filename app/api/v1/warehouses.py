@@ -3,7 +3,8 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import exists
+from sqlalchemy import exists, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db, require_permission
@@ -25,9 +26,22 @@ def list_warehouses(db: Session = Depends(get_db)):
 
 @router.post("/", response_model=WarehouseOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("can_edit_manage_data"))])
 def create_warehouse(payload: WarehouseCreate, db: Session = Depends(get_db)):
-    warehouse = Warehouse(**payload.dict())
+    normalized_name = (payload.name or "").strip()
+    if not normalized_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Warehouse name is required")
+    duplicate = (
+        db.query(exists().where(func.lower(Warehouse.name) == normalized_name.lower()))
+        .scalar()
+    )
+    if duplicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Warehouse name already exists")
+    warehouse = Warehouse(name=normalized_name)
     db.add(warehouse)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Warehouse name already exists") from exc
     db.refresh(warehouse)
     return warehouse
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import exists
+from sqlalchemy import and_, exists, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db, require_permission
@@ -20,6 +21,35 @@ from app.schemas.category import (
 from app.core.constants import CORE_INVENTORY_GROUPS, CORE_INVENTORY_GROUPS_SET
 
 router = APIRouter(prefix="/categories", tags=["categories"])
+
+
+def _normalize_subcategory_name(name: str | None) -> str:
+    normalized = (name or "").strip()
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sub-category name is required",
+        )
+    return normalized
+
+
+def _subcategory_exists(
+    db: Session,
+    *,
+    group_id: uuid.UUID,
+    name: str,
+    exclude_id: uuid.UUID | None = None,
+) -> bool:
+    conditions = [
+        SubCategory.group_id == group_id,
+        func.lower(SubCategory.name) == name.lower(),
+    ]
+    if exclude_id:
+        conditions.append(SubCategory.id != exclude_id)
+    return (
+        db.query(exists().where(and_(*conditions)))
+        .scalar()
+    )
 
 
 @router.get(
@@ -73,9 +103,24 @@ def create_subcategory(payload: SubCategoryCreate, db: Session = Depends(get_db)
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Sub-categories can only be attached to official inventory groups.",
             )
-    sub = SubCategory(**payload.dict())
+    name = _normalize_subcategory_name(payload.name)
+    if _subcategory_exists(db, group_id=payload.group_id, name=name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sub-category name already exists in this group",
+        )
+    data = payload.dict()
+    data["name"] = name
+    sub = SubCategory(**data)
     db.add(sub)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sub-category name already exists in this group",
+        ) from exc
     db.refresh(sub)
     return sub
 
@@ -95,9 +140,31 @@ def update_subcategory(sub_id: uuid.UUID, payload: SubCategoryUpdate, db: Sessio
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Sub-categories can only be attached to official inventory groups.",
             )
+    target_group_id = data.get("group_id", sub.group_id)
+    if "name" in data:
+        data["name"] = _normalize_subcategory_name(data["name"])
+    candidate_name = data.get("name", sub.name)
+    if _subcategory_exists(
+        db,
+        group_id=target_group_id,
+        name=candidate_name,
+        exclude_id=sub_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sub-category name already exists in this group",
+        )
+
     for key, value in data.items():
         setattr(sub, key, value)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sub-category name already exists in this group",
+        ) from exc
     db.refresh(sub)
     return sub
 

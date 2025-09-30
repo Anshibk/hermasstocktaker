@@ -72,9 +72,39 @@ def update_item(item_id: uuid.UUID, payload: ItemUpdate, db: Session = Depends(g
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     data = payload.dict(exclude_unset=True)
+
+    if "name" in data:
+        normalized_name = (data["name"] or "").strip()
+        if not normalized_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Item name is required",
+            )
+        duplicate = (
+            db.query(
+                exists()
+                .where(func.lower(Item.name) == normalized_name.lower())
+                .where(Item.id != item_id)
+            )
+            .scalar()
+        )
+        if duplicate:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Item name already exists",
+            )
+        item.name = normalized_name
+        data.pop("name")
+
     for key, value in data.items():
         setattr(item, key, value)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Item name already exists"
+        ) from exc
     db.refresh(item)
     return item
 
