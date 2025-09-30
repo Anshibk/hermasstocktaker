@@ -19,6 +19,12 @@ depends_on: tuple[str, ...] | None = None
 
 
 def upgrade() -> None:
+    # Drop reporting views that depend on users.username so we can alter the column
+    op.execute("DROP VIEW IF EXISTS finished_goods_table")
+    op.execute("DROP VIEW IF EXISTS semi_finished_table")
+    op.execute("DROP VIEW IF EXISTS rawmaterials_table")
+    op.execute("DROP VIEW IF EXISTS dashboard_modale_table")
+
     op.alter_column(
         "users",
         "username",
@@ -76,8 +82,105 @@ def upgrade() -> None:
         "UPDATE users SET email = username WHERE email IS NULL AND position('@' in username) > 0"
     )
 
+    # Recreate the reporting views with the wider username column available
+    op.execute(
+        """
+        CREATE VIEW dashboard_modale_table AS
+        SELECT
+            e.id,
+            COALESCE(u.parent_admin_id, u.id) AS owner_admin_id,
+            e.user_id,
+            u.username,
+            i.name AS item_name,
+            c.name AS category_name,
+            e.batch,
+            e.qty,
+            w.name AS warehouse,
+            COALESCE(e.price_at_entry, i.price, 0) AS price,
+            COALESCE(e.qty * COALESCE(e.price_at_entry, i.price, 0), 0) AS line_value,
+            e.type,
+            e.created_at
+        FROM entries e
+        JOIN users u ON u.id = e.user_id
+        JOIN items i ON i.id = e.item_id
+        LEFT JOIN categories c ON c.id = e.category_id
+        JOIN warehouses w ON w.id = e.warehouse_id;
+        """
+    )
+    op.execute(
+        """
+        CREATE VIEW rawmaterials_table AS
+        SELECT
+            e.id,
+            COALESCE(u.parent_admin_id, u.id) AS owner_admin_id,
+            e.user_id,
+            u.username,
+            i.name AS item_name,
+            c.name AS category_name,
+            e.batch,
+            e.qty,
+            w.name AS warehouse,
+            SUM(e.qty) OVER (PARTITION BY e.item_id) AS total_qty
+        FROM entries e
+        JOIN users u ON u.id = e.user_id
+        JOIN items i ON i.id = e.item_id
+        LEFT JOIN categories c ON c.id = e.category_id
+        JOIN warehouses w ON w.id = e.warehouse_id
+        WHERE e.type = 'raw';
+        """
+    )
+    op.execute(
+        """
+        CREATE VIEW semi_finished_table AS
+        SELECT
+            e.id,
+            COALESCE(u.parent_admin_id, u.id) AS owner_admin_id,
+            e.user_id,
+            u.username,
+            i.name AS item_name,
+            c.name AS category_name,
+            e.batch,
+            e.qty,
+            w.name AS warehouse,
+            SUM(e.qty) OVER (PARTITION BY e.item_id) AS total_qty
+        FROM entries e
+        JOIN users u ON u.id = e.user_id
+        JOIN items i ON i.id = e.item_id
+        LEFT JOIN categories c ON c.id = e.category_id
+        JOIN warehouses w ON w.id = e.warehouse_id
+        WHERE e.type = 'sfg';
+        """
+    )
+    op.execute(
+        """
+        CREATE VIEW finished_goods_table AS
+        SELECT
+            e.id,
+            COALESCE(u.parent_admin_id, u.id) AS owner_admin_id,
+            e.user_id,
+            u.username,
+            i.name AS item_name,
+            c.name AS category_name,
+            e.batch,
+            e.qty,
+            w.name AS warehouse,
+            SUM(e.qty) OVER (PARTITION BY e.item_id) AS total_qty
+        FROM entries e
+        JOIN users u ON u.id = e.user_id
+        JOIN items i ON i.id = e.item_id
+        LEFT JOIN categories c ON c.id = e.category_id
+        JOIN warehouses w ON w.id = e.warehouse_id
+        WHERE e.type = 'fg';
+        """
+    )
+
 
 def downgrade() -> None:
+    op.execute("DROP VIEW IF EXISTS finished_goods_table")
+    op.execute("DROP VIEW IF EXISTS semi_finished_table")
+    op.execute("DROP VIEW IF EXISTS rawmaterials_table")
+    op.execute("DROP VIEW IF EXISTS dashboard_modale_table")
+
     op.execute(
         "UPDATE users SET email = NULL, google_sub = NULL, invitation_token = NULL, invited_at = NULL, invited_by_id = NULL"
     )
@@ -102,4 +205,95 @@ def downgrade() -> None:
         existing_type=sa.String(length=120),
         type_=sa.String(length=60),
         existing_nullable=False,
+    )
+
+    op.execute(
+        """
+        CREATE VIEW dashboard_modale_table AS
+        SELECT
+            e.id,
+            COALESCE(u.parent_admin_id, u.id) AS owner_admin_id,
+            e.user_id,
+            u.username,
+            i.name AS item_name,
+            c.name AS category_name,
+            e.batch,
+            e.qty,
+            w.name AS warehouse,
+            COALESCE(e.price_at_entry, i.price, 0) AS price,
+            COALESCE(e.qty * COALESCE(e.price_at_entry, i.price, 0), 0) AS line_value,
+            e.type,
+            e.created_at
+        FROM entries e
+        JOIN users u ON u.id = e.user_id
+        JOIN items i ON i.id = e.item_id
+        LEFT JOIN categories c ON c.id = e.category_id
+        JOIN warehouses w ON w.id = e.warehouse_id;
+        """
+    )
+    op.execute(
+        """
+        CREATE VIEW rawmaterials_table AS
+        SELECT
+            e.id,
+            COALESCE(u.parent_admin_id, u.id) AS owner_admin_id,
+            e.user_id,
+            u.username,
+            i.name AS item_name,
+            c.name AS category_name,
+            e.batch,
+            e.qty,
+            w.name AS warehouse,
+            SUM(e.qty) OVER (PARTITION BY e.item_id) AS total_qty
+        FROM entries e
+        JOIN users u ON u.id = e.user_id
+        JOIN items i ON i.id = e.item_id
+        LEFT JOIN categories c ON c.id = e.category_id
+        JOIN warehouses w ON w.id = e.warehouse_id
+        WHERE e.type = 'raw';
+        """
+    )
+    op.execute(
+        """
+        CREATE VIEW semi_finished_table AS
+        SELECT
+            e.id,
+            COALESCE(u.parent_admin_id, u.id) AS owner_admin_id,
+            e.user_id,
+            u.username,
+            i.name AS item_name,
+            c.name AS category_name,
+            e.batch,
+            e.qty,
+            w.name AS warehouse,
+            SUM(e.qty) OVER (PARTITION BY e.item_id) AS total_qty
+        FROM entries e
+        JOIN users u ON u.id = e.user_id
+        JOIN items i ON i.id = e.item_id
+        LEFT JOIN categories c ON c.id = e.category_id
+        JOIN warehouses w ON w.id = e.warehouse_id
+        WHERE e.type = 'sfg';
+        """
+    )
+    op.execute(
+        """
+        CREATE VIEW finished_goods_table AS
+        SELECT
+            e.id,
+            COALESCE(u.parent_admin_id, u.id) AS owner_admin_id,
+            e.user_id,
+            u.username,
+            i.name AS item_name,
+            c.name AS category_name,
+            e.batch,
+            e.qty,
+            w.name AS warehouse,
+            SUM(e.qty) OVER (PARTITION BY e.item_id) AS total_qty
+        FROM entries e
+        JOIN users u ON u.id = e.user_id
+        JOIN items i ON i.id = e.item_id
+        LEFT JOIN categories c ON c.id = e.category_id
+        JOIN warehouses w ON w.id = e.warehouse_id
+        WHERE e.type = 'fg';
+        """
     )
