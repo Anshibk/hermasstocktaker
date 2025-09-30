@@ -523,8 +523,6 @@ def export_detail(
             number_format=number_format,
         )
 
-    _append_blank_row(sheet, len(headers))
-
     headers = [
         "#",
         "Entry Date",
@@ -537,6 +535,7 @@ def export_detail(
         "Price",
         "Line Value",
     ]
+    _append_blank_row(sheet, len(headers))
     _append_header(sheet, headers)
 
     entry_category = aliased(SubCategory)
@@ -673,42 +672,6 @@ def export_dashboard(
         )
     )
 
-    entry_category = aliased(SubCategory)
-    item_category_detail = aliased(SubCategory)
-    detail_query = (
-        db.query(
-            Entry.id.label("entry_id"),
-            Entry.item_id.label("item_id"),
-            User.username.label("username"),
-            Item.name.label("item_name"),
-            func.coalesce(entry_category.name, item_category_detail.name).label(
-                "category_name"
-            ),
-            Entry.batch,
-            Entry.mfg,
-            Entry.exp,
-            Entry.qty,
-            Warehouse.name.label("location"),
-            func.coalesce(Entry.price_at_entry, Item.price).label("price"),
-            (
-                Entry.qty
-                * func.coalesce(Entry.price_at_entry, Item.price, 0)
-            ).label("line_value"),
-            Item.unit.label("unit"),
-            Entry.created_at.label("created_at"),
-        )
-        .join(User, User.id == Entry.user_id)
-        .join(Item, Item.id == Entry.item_id)
-        .outerjoin(entry_category, entry_category.id == Entry.category_id)
-        .outerjoin(item_category_detail, item_category_detail.id == Item.category_id)
-        .join(Warehouse, Warehouse.id == Entry.warehouse_id)
-    )
-    if user_ids:
-        detail_query = detail_query.filter(Entry.user_id.in_(user_ids))
-    if session_ids:
-        detail_query = detail_query.filter(Entry.session_id.in_(session_ids))
-    detail_query = detail_query.order_by(Item.name, Entry.created_at)
-
     generated_label = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
     download_date = datetime.utcnow().strftime("%d-%b-%Y")
     workbook = Workbook(write_only=True)
@@ -755,65 +718,44 @@ def export_dashboard(
                 ],
             )
 
-        entries_sheet = workbook.create_sheet(title="Master Entries")
-        _write_title_block(entries_sheet, "Master Logged Entries", generated_label)
-        entry_headers = [
-            "#",
-            "Entry Date",
-            "User",
-            "Item Name",
-            "Category",
-            "Batch",
-            "Mfg",
-            "Exp",
-            "Quantity",
-            "Location",
-            "Price",
-            "Line Value",
-        ]
-        _append_header(entries_sheet, entry_headers)
-
-        for index, entry in enumerate(_stream_entry_rows(detail_query), start=1):
-            price = entry.get("price")
-            price_format = CURRENCY_FORMAT if price is not None else None
-            _append_row(
-                entries_sheet,
-                [
-                    _make_cell(entries_sheet, index, alignment=Alignment(horizontal="center")),
-                    _make_cell(
-                        entries_sheet,
-                        _format_date_label(entry.get("created_at")),
-                        alignment=Alignment(horizontal="center"),
-                    ),
-                    _make_cell(entries_sheet, entry.get("username"), alignment=Alignment(horizontal="left")),
-                    _make_cell(entries_sheet, entry.get("item_name"), alignment=Alignment(horizontal="left")),
-                    _make_cell(entries_sheet, entry.get("category_name") or "—", alignment=Alignment(horizontal="left")),
-                    _make_cell(entries_sheet, entry.get("batch") or "—", alignment=Alignment(horizontal="left")),
-                    _make_cell(entries_sheet, entry.get("mfg"), alignment=Alignment(horizontal="center")),
-                    _make_cell(entries_sheet, entry.get("exp"), alignment=Alignment(horizontal="center")),
-                    _make_cell(
-                        entries_sheet,
-                        _format_qty_text(entry.get("qty"), entry.get("unit")),
-                        alignment=Alignment(horizontal="right"),
-                    ),
-                    _make_cell(entries_sheet, entry.get("location") or "—", alignment=Alignment(horizontal="left")),
-                    _make_cell(
-                        entries_sheet,
-                        price,
-                        alignment=Alignment(horizontal="right"),
-                        number_format=price_format,
-                    ),
-                    _make_cell(
-                        entries_sheet,
-                        entry.get("line_value"),
-                        alignment=Alignment(horizontal="right"),
-                        number_format=CURRENCY_FORMAT,
-                    ),
-                ],
-            )
-
         filename = f"export_with_master_items_{download_date}.xlsx"
     else:
+        entry_category = aliased(SubCategory)
+        item_category_detail = aliased(SubCategory)
+        detail_query = (
+            db.query(
+                Entry.id.label("entry_id"),
+                Entry.item_id.label("item_id"),
+                User.username.label("username"),
+                Item.name.label("item_name"),
+                func.coalesce(entry_category.name, item_category_detail.name).label(
+                    "category_name"
+                ),
+                Entry.batch,
+                Entry.mfg,
+                Entry.exp,
+                Entry.qty,
+                Warehouse.name.label("location"),
+                func.coalesce(Entry.price_at_entry, Item.price).label("price"),
+                (
+                    Entry.qty
+                    * func.coalesce(Entry.price_at_entry, Item.price, 0)
+                ).label("line_value"),
+                Item.unit.label("unit"),
+                Entry.created_at.label("created_at"),
+            )
+            .join(User, User.id == Entry.user_id)
+            .join(Item, Item.id == Entry.item_id)
+            .outerjoin(entry_category, entry_category.id == Entry.category_id)
+            .outerjoin(item_category_detail, item_category_detail.id == Item.category_id)
+            .join(Warehouse, Warehouse.id == Entry.warehouse_id)
+        )
+        if user_ids:
+            detail_query = detail_query.filter(Entry.user_id.in_(user_ids))
+        if session_ids:
+            detail_query = detail_query.filter(Entry.session_id.in_(session_ids))
+        detail_query = detail_query.order_by(Item.name, Entry.created_at)
+
         valued_sheet = workbook.create_sheet(title="Valued Items")
         _write_title_block(valued_sheet, "Valued Item Report", generated_label)
         _append_header(valued_sheet, items_headers)
