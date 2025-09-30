@@ -491,6 +491,7 @@ function seedState() {
     currentUser: null,
     permissions: {},
     items: [],
+    itemById: new Map(),
     cats: {},
     categoryGroups: [],
     subcategories: [],
@@ -502,6 +503,7 @@ function seedState() {
       subIdToGroupId: new Map(),
     },
     locations: [],
+    locationById: new Map(),
     lines: [],
     entryPaging: {
       raw: defaultEntryPagingMeta(),
@@ -781,6 +783,163 @@ function rebuildCategoryLookups(groups, subs){
   });
   Object.keys(cats).forEach(name=>cats[name].sort((a,b)=>a.localeCompare(b)));
   state.cats=cats;
+  syncEntriesWithCategoryLookups();
+}
+
+function rebuildItemLookup(){
+  const items=Array.isArray(state.items)?state.items:[];
+  state.itemById=new Map();
+  items.forEach(item=>{
+    if(item && item.id){
+      state.itemById.set(String(item.id), item);
+    }
+  });
+}
+
+function rebuildLocationLookup(){
+  const locations=Array.isArray(state.locations)?state.locations:[];
+  state.locationById=new Map();
+  locations.forEach(loc=>{
+    if(loc && loc.id){
+      state.locationById.set(String(loc.id), loc);
+    }
+  });
+}
+
+function lookupItemById(id){
+  if(!id) return null;
+  const key=String(id);
+  if(state.itemById instanceof Map && state.itemById.has(key)){
+    return state.itemById.get(key);
+  }
+  if(Array.isArray(state.items)){
+    return state.items.find(item=>item?.id===key) || null;
+  }
+  return null;
+}
+
+function lookupLocationById(id){
+  if(!id) return null;
+  const key=String(id);
+  if(state.locationById instanceof Map && state.locationById.has(key)){
+    return state.locationById.get(key);
+  }
+  if(Array.isArray(state.locations)){
+    return state.locations.find(loc=>loc?.id===key) || null;
+  }
+  return null;
+}
+
+function syncEntriesWithItemLookups(){
+  if(!Array.isArray(state.lines)) return;
+  let changed=false;
+  const updated=state.lines.map(line=>{
+    const item=lookupItemById(line.itemId);
+    if(!item) return line;
+    const newUnit=item.unit?String(item.unit):line.unit;
+    const newCategoryId=item.categoryId||null;
+    const newCategoryLabel=item.category || (newCategoryId?getCategoryNameById(newCategoryId)||getGroupNameForCategoryId(newCategoryId):line.categoryLabel);
+    const newGroupLabel=item.groupName || (newCategoryId?getGroupNameForCategoryId(newCategoryId):line.groupLabel);
+    const needsUpdate=line.itemName!==item.name || line.unit!==newUnit || line.categoryId!==newCategoryId || line.categoryLabel!==newCategoryLabel || line.groupLabel!==newGroupLabel;
+    if(!needsUpdate) return line;
+    changed=true;
+    return {
+      ...line,
+      itemName:item.name,
+      unit:newUnit,
+      categoryId:newCategoryId,
+      categoryLabel:newCategoryLabel,
+      groupLabel:newGroupLabel,
+    };
+  });
+  if(changed){
+    state.lines=updated;
+  }
+}
+
+function syncEntriesWithLocationLookups(){
+  if(!Array.isArray(state.lines)) return;
+  let changed=false;
+  const updated=state.lines.map(line=>{
+    if(!line.locationId) return line;
+    const location=lookupLocationById(line.locationId);
+    if(!location) return line;
+    const name=location.name || line.locationName;
+    if(line.locationName===name) return line;
+    changed=true;
+    return { ...line, locationName:name };
+  });
+  if(changed){
+    state.lines=updated;
+  }
+}
+
+function syncEntriesWithCategoryLookups(){
+  if(!Array.isArray(state.lines)) return;
+  let changed=false;
+  const updated=state.lines.map(line=>{
+    if(!line.categoryId) return line;
+    const label=getCategoryNameById(line.categoryId) || line.categoryLabel;
+    const groupLabel=getGroupNameForCategoryId(line.categoryId) || line.groupLabel;
+    if(line.categoryLabel===label && line.groupLabel===groupLabel) return line;
+    changed=true;
+    return { ...line, categoryLabel:label, groupLabel };
+  });
+  if(changed){
+    state.lines=updated;
+  }
+}
+
+function applyItemToEntries(item){
+  if(!item || !item.id) return;
+  const key=String(item.id);
+  const updated=state.lines.map(line=>{
+    if(line.itemId!==key) return line;
+    const newCategoryId=item.categoryId||null;
+    const newCategoryLabel=item.category || (newCategoryId?getCategoryNameById(newCategoryId)||getGroupNameForCategoryId(newCategoryId):line.categoryLabel);
+    const newGroupLabel=item.groupName || (newCategoryId?getGroupNameForCategoryId(newCategoryId):line.groupLabel);
+    return {
+      ...line,
+      itemName:item.name,
+      unit:item.unit?String(item.unit):line.unit,
+      categoryId:newCategoryId,
+      categoryLabel:newCategoryLabel,
+      groupLabel:newGroupLabel,
+    };
+  });
+  state.lines=updated;
+}
+
+function removeEntriesByItemIds(ids){
+  if(!Array.isArray(ids) || !ids.length) return;
+  const lookup=new Set(ids.map(id=>String(id)));
+  state.lines=state.lines.filter(line=>!lookup.has(line.itemId));
+}
+
+function applyLocationToEntries(location){
+  if(!location || !location.id) return;
+  const key=String(location.id);
+  const updated=state.lines.map(line=>{
+    if(line.locationId!==key) return line;
+    return { ...line, locationName:location.name };
+  });
+  state.lines=updated;
+}
+
+function applyCategoryUpdateToEntries(categoryId){
+  if(!categoryId) return;
+  const key=String(categoryId);
+  const label=getCategoryNameById(key) || getGroupNameForCategoryId(key) || "";
+  const groupLabel=getGroupNameForCategoryId(key) || "";
+  const updated=state.lines.map(line=>{
+    if(line.categoryId!==key) return line;
+    return {
+      ...line,
+      categoryLabel:label || line.categoryLabel,
+      groupLabel:groupLabel || line.groupLabel,
+    };
+  });
+  state.lines=updated;
 }
 
 function getGroupNameForCategoryId(categoryId){
@@ -827,8 +986,11 @@ function normaliseEntryFromApi(entry){
   const categoryId=entry.category_id?String(entry.category_id):"";
   const categoryLabel=entry.category_name || getCategoryNameById(categoryId) || getGroupNameForCategoryId(categoryId) || "";
   const groupLabel=getGroupNameForCategoryId(categoryId);
-  const itemName=entry.item_name || (state.items.find(it=>it.id===String(entry.item_id))?.name || "");
-  const location=state.locations.find(loc=>loc.id===String(entry.warehouse_id));
+  const itemId=entry.item_id?String(entry.item_id):"";
+  const item=lookupItemById(itemId);
+  const itemName=entry.item_name || item?.name || "";
+  const locationId=entry.warehouse_id?String(entry.warehouse_id):"";
+  const location=lookupLocationById(locationId);
   const locationName=entry.warehouse_name || location?.name || "";
   const price=entry.price_at_entry==null?null:Number(entry.price_at_entry);
   const createdRaw=entry.entry_date || entry.created_at || "";
@@ -837,14 +999,14 @@ function normaliseEntryFromApi(entry){
   return {
     id:String(entry.id||""),
     sessionId: String(entry.session_id||""),
-    itemId: String(entry.item_id||""),
+    itemId,
     itemName,
     categoryId: categoryId||null,
     categoryLabel,
     groupLabel,
     unit: entry.unit==null?"":String(entry.unit),
     qty: Number(entry.qty||0),
-    locationId: entry.warehouse_id?String(entry.warehouse_id):"",
+    locationId,
     locationName,
     batch: typeof entry.batch==="string"?entry.batch.trim().toUpperCase():"",
     mfg: entry.mfg?String(entry.mfg).trim():"",
@@ -929,6 +1091,8 @@ async function refreshEntries(type){
 async function refreshItems(){
   const payload=await api.get('/items/');
   state.items=Array.isArray(payload)?payload.map(normaliseItemFromApi).filter(Boolean):[];
+  rebuildItemLookup();
+  syncEntriesWithItemLookups();
 }
 
 async function refreshCategoryData(){
@@ -961,6 +1125,8 @@ async function refreshLocations(){
   state.locations = Array.isArray(payload)
     ? payload.map(loc=>({ id:String(loc?.id||""), name:String(loc?.name||"").trim()||"Unnamed" }))
     : [];
+  rebuildLocationLookup();
+  syncEntriesWithLocationLookups();
 }
 
 async function refreshMetrics(){
@@ -2137,6 +2303,8 @@ function applyBootstrap(payload){
     id:String(loc?.id||""),
     name:String(loc?.name||"").trim()||"Unnamed",
   })):[];
+  rebuildLocationLookup();
+  syncEntriesWithLocationLookups();
   state.metricEntities = Array.isArray(payload.metrics)?payload.metrics.map(m=>({
     id:String(m?.id||""),
     name:String(m?.name||"").trim(),
@@ -2152,10 +2320,11 @@ async function hydrateState(){
   try{
     const bootstrap=await api.get('/bootstrap/');
     applyBootstrap(bootstrap||{});
-    await refreshItems();
-    await refreshLocations();
-    await refreshMetrics();
-    await refreshAllEntries();
+    const itemsPromise=refreshItems();
+    const locationsPromise=refreshLocations();
+    const metricsPromise=refreshMetrics();
+    const entriesPromise=refreshAllEntries();
+    await Promise.all([itemsPromise, locationsPromise, metricsPromise, entriesPromise]);
     if(state.permissions?.can_manage_roles || state.permissions?.can_manage_users){
       try{ await refreshRoles(); }
       catch(err){ console.error(err); state.roles=[]; }
@@ -3492,7 +3661,7 @@ function renderAddPage(){
         await api.delete(`/items/${encodeURIComponent(itemId)}`);
       }
       await refreshItems();
-      await refreshAllEntries();
+      removeEntriesByItemIds(ids);
       bulkSelected.add.clear();
       bulkMode.add=false;
       addPanel.add=false;
@@ -3541,7 +3710,8 @@ function renderAddPage(){
             category_id: categoryId||null,
           });
           await refreshItems();
-          await refreshAllEntries();
+          const updatedItem=lookupItemById(item.id);
+          if(updatedItem) applyItemToEntries(updatedItem);
           addPanel.add=false;
           editItemId.add="";
           renderAddPage();
@@ -3563,7 +3733,7 @@ function renderAddPage(){
           await deleteEntriesForItem(item.id);
           await api.delete(`/items/${encodeURIComponent(item.id)}`);
           await refreshItems();
-          await refreshAllEntries();
+          removeEntriesByItemIds([item.id]);
           addPanel.add=false;
           editItemId.add="";
           renderAddPage();
@@ -3597,7 +3767,6 @@ function renderAddPage(){
             category_id: categoryId||null,
           });
           await refreshItems();
-          await refreshAllEntries();
           addPanel.add=true;
           renderAddPage();
           toast("Item saved");
@@ -4328,7 +4497,6 @@ function renderManagePage(){
           $("#sub_new").value="";
           await refreshCategoryData();
           await refreshItems();
-          await refreshAllEntries();
           renderManagePage();
           toast("Sub-category added");
         }catch(err){
@@ -4372,7 +4540,6 @@ function renderManagePage(){
           await api.post('/warehouses/', {name});
           input.value="";
           await refreshLocations();
-          await refreshAllEntries();
           renderManagePage();
           toast("Location added");
         }catch(err){
@@ -4494,7 +4661,7 @@ function paintSubs(){
         ui.editItemId.manage_sub="";
         await refreshCategoryData();
         await refreshItems();
-        await refreshAllEntries();
+        applyCategoryUpdateToEntries(id);
         renderManagePage();
         toast("Sub-category updated");
       }catch(err){
@@ -4515,7 +4682,6 @@ function paintSubs(){
         await api.delete(`/categories/subs/${encodeURIComponent(id)}`);
         await refreshCategoryData();
         await refreshItems();
-        await refreshAllEntries();
         renderManagePage();
         toast("Sub-category deleted");
       }catch(err){
@@ -4573,7 +4739,8 @@ function paintLocations(){
         await api.put(`/warehouses/${encodeURIComponent(id)}`, {name:newName});
         ui.editItemId.manage_loc="";
         await refreshLocations();
-        await refreshAllEntries();
+        const updatedLocation=lookupLocationById(id);
+        if(updatedLocation) applyLocationToEntries(updatedLocation);
         renderManagePage();
         toast("Location updated");
       }catch(err){
