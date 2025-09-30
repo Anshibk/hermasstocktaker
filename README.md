@@ -21,7 +21,9 @@ Converted from the single-file HTML application into a FastAPI + PostgreSQL back
 
    ```bash
    cp .env.example .env
-   # edit DATABASE_URL and SESSION_SECRET as needed
+   # edit DATABASE_URL and SESSION_SECRET as needed (SESSION_SECRET must be >= 32 chars)
+   # set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI, GOOGLE_SUPERUSER_EMAIL
+   # leave SESSION_COOKIE_SECURE=true in production so session cookies are HTTPS-only
    ```
 
 3. Run migrations and seed default data:
@@ -37,7 +39,9 @@ Converted from the single-file HTML application into a FastAPI + PostgreSQL back
    uvicorn app.main:app --reload
    ```
 
-The default administrator account is `Admin` / `adminthegreat`.
+The application now relies on Google OAuth for authentication. Define `GOOGLE_SUPERUSER_EMAIL` with the Gmail account that should
+bootstrap the workspace. That superuser can invite additional Gmail accounts from **Users → Invite User**, and invited users join
+by pasting their invitation code on the login screen before completing Google sign-in.
 
 ### Updating Tailwind styles
 

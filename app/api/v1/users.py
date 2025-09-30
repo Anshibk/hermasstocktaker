@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import secrets
 import uuid
 from typing import Final
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_current_user, get_db, require_permission
-from loginpage import hash_password
 
 from app.models.user import User
 from app.schemas.user import UserCreate, UserOut, UserUpdate
@@ -19,7 +21,9 @@ PROTECTED_USERNAMES: Final = {"admin", "adminthegreat"}
 def _is_protected_user(user: User | None) -> bool:
     if not user or not user.username:
         return False
-    return user.username.casefold() in PROTECTED_USERNAMES
+    username_protected = user.username.casefold() in PROTECTED_USERNAMES
+    email_protected = bool(settings.google_superuser_email) and bool(user.email) and user.email.casefold() == settings.google_superuser_email
+    return username_protected or email_protected
 
 
 router = APIRouter(
@@ -36,21 +40,39 @@ def list_users(db: Session = Depends(get_db)):
 
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    username = payload.username.strip()
-    if not username:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required")
-    if db.query(User).filter(User.username.ilike(username)).first():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already exists")
-    data = payload.dict()
-    data["username"] = username
-    data["name"] = data.get("name") or data["username"]
-    password = data["password"].strip()
-    if not password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password is required")
-    data["password"] = hash_password(password)
+    email = payload.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is required")
+    if not email.endswith(f"@{settings.google_allowed_domain}"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only Gmail addresses may be invited")
+    exists = (
+        db.query(User)
+        .filter(func.lower(User.email) == email)
+        .one_or_none()
+    )
+    if exists:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A user with this email already exists")
+    username_exists = (
+        db.query(User)
+        .filter(func.lower(User.username) == email)
+        .one_or_none()
+    )
+    if username_exists:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A user with this email already exists")
+    username = email
+    invitation_token = secrets.token_urlsafe(32)
     user = User(
-        **data,
+        name=(payload.name or "").strip() or email.split("@")[0],
+        username=username,
+        email=email,
+        password=None,
+        role_id=payload.role_id,
         parent_admin_id=current_user.id if current_user.parent_admin_id is None else current_user.parent_admin_id,
+        dashboard_share_enabled=payload.dashboard_share_enabled,
+        is_active=payload.is_active,
+        invitation_token=invitation_token,
+        invited_at=None,
+        invited_by_id=current_user.id,
     )
     db.add(user)
     db.commit()
@@ -68,28 +90,28 @@ def update_user(user_id: uuid.UUID, payload: UserUpdate, db: Session = Depends(g
     data = payload.dict(exclude_unset=True)
 
     if is_protected:
-        illegal_fields = [key for key in data.keys() if key != "password"]
+        illegal_fields = [key for key in data.keys() if key not in {"dashboard_share_enabled", "is_active"}]
         if illegal_fields:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="The default admin account can only change its password.",
+                detail="The default admin account cannot be modified",
             )
 
     updates: dict[str, object] = {}
-    if "password" in data:
-        password = (data["password"] or "").strip()
-        if not password:
-            data.pop("password")
-        else:
-            updates["password"] = hash_password(password)
-
     if "name" in data:
-        name = data["name"] or ""
-        updates["name"] = name if name else user.username
+        name = (data["name"] or "").strip()
+        if name:
+            updates["name"] = name
 
     for key in ("role_id", "is_active", "dashboard_share_enabled"):
-        if key in data and key not in updates:
+        if key in data:
             updates[key] = data[key]
+
+    if data.get("regenerate_invitation"):
+        if user.google_sub:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is already linked to Google")
+        updates["invitation_token"] = secrets.token_urlsafe(32)
+        updates["invited_at"] = None
 
     for key, value in updates.items():
         setattr(user, key, value)

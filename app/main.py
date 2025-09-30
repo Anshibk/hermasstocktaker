@@ -14,8 +14,15 @@ from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.realtime import entry_event_broker
 
+settings.validate_runtime()
+
 app = FastAPI(title="Hermas Stock Taker")
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    same_site="lax",
+    https_only=settings.session_cookie_secure,
+)
 
 static_dir = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
