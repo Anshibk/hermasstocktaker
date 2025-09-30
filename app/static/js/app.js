@@ -1384,10 +1384,14 @@ function mapUserFromApi(user){
   return {
     id:String(user.id||""),
     username:String(user.username||"").trim(),
+    email:String(user.email||"").trim(),
     name:String(user.name||"").trim(),
     roleId:role.id?String(role.id):"",
     roleName:String(role.name||"").trim()||"—",
     isActive: !!user.is_active,
+    googleLinked: !!user.google_linked,
+    invitationToken: String(user.invitation_token||"").trim(),
+    invitedAt: user.invited_at ? new Date(user.invited_at) : null,
   };
 }
 
@@ -1405,17 +1409,15 @@ async function refreshUsers(){
 }
 
 /* ============== Users & Roles Page ============== */
-function openUserModal(userId, options = {}) {
+function openUserModal(userId) {
   usersUi.userModalOpen = true;
   usersUi.editUserId = userId ? String(userId) : "";
-  usersUi.passwordOnly = !!options.passwordOnly;
   renderUsersPage();
 }
 
 function closeUserModal() {
   usersUi.userModalOpen = false;
   usersUi.editUserId = "";
-  usersUi.passwordOnly = false;
   renderUsersPage();
 }
 
@@ -1671,40 +1673,59 @@ function renderUsersPage() {
     }
   }
   const adminUsernames = new Set(["admin", "adminthegreat"]);
+  const buildInviteLink = (token) => {
+    if (!token) return "";
+    const origin = (typeof window !== "undefined" && window.location) ? window.location.origin.replace(/\/$/, "") : "";
+    return `${origin || ""}/login?invite=${encodeURIComponent(token)}`;
+  };
   const userRows = state.users.length
     ? state.users
         .map((user) => {
           const isProtected = user.username && adminUsernames.has(user.username.toLowerCase());
-          const activateDisabled = !canManageUsers || isProtected ? " disabled" : "";
-          const toggleClasses = !canManageUsers || isProtected ? " opacity-50 cursor-not-allowed" : "";
-          const editDisabled = !canManageUsers || isProtected ? " disabled" : "";
-          const editClasses = !canManageUsers || isProtected ? "btn text-sm opacity-50 cursor-not-allowed" : "btn text-sm";
-          const deleteDisabled = !canManageUsers || isProtected ? " disabled" : "";
-          const deleteClasses = !canManageUsers || isProtected ? "btn btn-danger text-sm opacity-50 cursor-not-allowed" : "btn btn-danger text-sm";
           const activation = isProtected
             ? '<span class="hint">Always active</span>'
-            : `<label class="inline-flex items-center gap-2 cursor-pointer select-none${toggleClasses}"><input type="checkbox" data-activate="${H(user.id)}" class="h-4 w-4" ${user.isActive ? "checked" : ""}${activateDisabled}><span class="text-slate-600 text-sm">${user.isActive ? "Active" : "Inactive"}</span></label>`;
-          const passwordCell = isProtected
-            ? `<button class="btn text-sm${!canManageUsers ? ' opacity-50 cursor-not-allowed' : ''}"${canManageUsers ? ` data-change-password="${H(user.id)}"` : ' disabled'}>Change Password</button>`
-            : '••••••••';
-          const editBtn = isProtected
-            ? `<div class="flex flex-wrap gap-2 items-center"><button class="${editClasses}" disabled>✎ Edit</button></div>`
-            : `<button class="${editClasses}" data-edit-user="${H(user.id)}"${editDisabled}>✎ Edit</button>`;
-          const deleteBtn = isProtected
-            ? '<span class="hint">—</span>'
-            : `<button class="${deleteClasses}" data-del-user="${H(user.id)}" data-username="${H(user.username)}"${deleteDisabled}>Delete</button>`;
+            : canManageUsers
+            ? `<label class="inline-flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" data-activate="${H(user.id)}" class="h-4 w-4" ${user.isActive ? "checked" : ""}><span class="text-slate-600 text-sm">${user.isActive ? "Active" : "Inactive"}</span></label>`
+            : `<span class="hint">${user.isActive ? "Active" : "Inactive"}</span>`;
+          const statusPills = [];
+          if (user.googleLinked) {
+            statusPills.push('<span class="status-pill success">Google linked</span>');
+          } else if (user.invitationToken) {
+            statusPills.push('<span class="status-pill pending">Pending invite</span>');
+          } else {
+            statusPills.push('<span class="status-pill muted">Invite required</span>');
+          }
+          statusPills.push(`<span class="status-pill ${user.isActive ? 'info' : 'muted'}">${user.isActive ? 'Active' : 'Inactive'}</span>`);
+          const actions = [];
+          if (canManageUsers && user.invitationToken) {
+            actions.push(`<button class="btn text-sm" data-copy-invite="${H(user.invitationToken)}">Copy invite link</button>`);
+          }
+          if (canManageUsers && user.invitationToken && !user.googleLinked) {
+            actions.push(`<button class="btn text-sm" data-regenerate-invite="${H(user.id)}">Regenerate invite</button>`);
+          }
+          if (canManageUsers && !isProtected) {
+            actions.push(`<button class="btn text-sm" data-edit-user="${H(user.id)}">Edit</button>`);
+            actions.push(`<button class="btn btn-danger text-sm" data-del-user="${H(user.id)}" data-username="${H(user.email || user.username)}">Delete</button>`);
+          }
+          const actionCell = actions.length ? actions.join('<span class="inline-block w-2"></span>') : '<span class="hint">No actions</span>';
           const rowClass = isProtected ? " admin-locked" : "";
+          const displayName = user.name || user.username;
+          const emailLine = user.email ? `<div class="text-sm text-slate-500">${H(user.email)}</div>` : "";
+          const inviteLink = user.invitationToken ? `<div class="text-xs text-slate-400 mt-1">${H(buildInviteLink(user.invitationToken))}</div>` : "";
           return `<tr class="border-t border-slate-200${rowClass}">
-      <td class="px-5 py-3 font-medium">${H(user.username)}</td>
-      <td class="px-5 py-3 text-slate-500">${passwordCell}</td>
-      <td class="px-5 py-3"><span class="role-pill">${H(user.roleName)}</span></td>
-      <td class="px-5 py-3">${activation}</td>
-      <td class="px-5 py-3">${editBtn}</td>
-      <td class="px-5 py-3">${deleteBtn}</td>
+      <td class="px-5 py-4">
+        <div class="font-semibold">${H(displayName)}</div>
+        ${emailLine}
+        ${inviteLink}
+      </td>
+      <td class="px-5 py-4"><span class="role-pill">${H(user.roleName)}</span></td>
+      <td class="px-5 py-4 space-y-2">${statusPills.join('<br>')}</td>
+      <td class="px-5 py-4">${activation}</td>
+      <td class="px-5 py-4 whitespace-nowrap">${actionCell}</td>
     </tr>`;
         })
         .join("")
-    : `<tr><td colspan="6" class="px-5 py-6 text-center text-sm text-slate-500">No users yet.</td></tr>`;
+    : `<tr><td colspan="5" class="px-5 py-6 text-center text-sm text-slate-500">No users yet.</td></tr>`;
 
   const roleDraft = usersUi.roleDraft ? ensureRoleMeta(usersUi.roleDraft) : null;
   const roleList = state.roles.slice();
@@ -1930,11 +1951,7 @@ function renderUsersPage() {
     </div>
   `;
 
-  const userModalTitle = usersUi.passwordOnly
-    ? "Change Password"
-    : usersUi.editUserId
-    ? "Edit User"
-    : "Add User";
+  const userModalTitle = usersUi.editUserId ? "Edit User" : "Invite User";
 
   page.innerHTML = `
     <div class="max-w-6xl mx-auto px-4 py-8">
@@ -1943,7 +1960,7 @@ function renderUsersPage() {
         <p class="text-slate-600 mt-1">Manage users, roles, and permissions.</p>
       </header>
       <div class="flex flex-wrap items-center gap-2 mb-5">
-        <button id="btnAddUser" class="${addUserClasses}"${addUserDisabledAttr}>+ Add User</button>
+        <button id="btnAddUser" class="${addUserClasses}"${addUserDisabledAttr}>+ Invite User</button>
         <button id="btnManageRoles" class="${manageRolesBtnClasses}"${manageRolesDisabledAttr}>Manage Roles</button>
         <span class="ml-auto hint">Data is stored in PostgreSQL.</span>
       </div>
@@ -1952,15 +1969,14 @@ function renderUsersPage() {
           <div class="font-semibold text-slate-800">Users</div>
         </div>
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[720px] text-sm">
+          <table class="w-full min-w-[780px] text-sm">
             <thead class="bg-slate-50 text-slate-600">
               <tr>
-                <th class="text-left font-semibold px-5 py-3">Username</th>
-                <th class="text-left font-semibold px-5 py-3">Password</th>
+                <th class="text-left font-semibold px-5 py-3">User</th>
                 <th class="text-left font-semibold px-5 py-3">Role</th>
+                <th class="text-left font-semibold px-5 py-3">Status</th>
                 <th class="text-left font-semibold px-5 py-3">Activation</th>
-                <th class="text-left font-semibold px-5 py-3">Edit</th>
-                <th class="text-left font-semibold px-5 py-3">Delete</th>
+                <th class="text-left font-semibold px-5 py-3">Actions</th>
               </tr>
             </thead>
             <tbody id="usersBody">${userRows}</tbody>
@@ -1977,17 +1993,29 @@ function renderUsersPage() {
           <button class="btn" data-close>Close</button>
         </div>
         <div class="p-5 space-y-4">
-          <div data-field="username">
-            <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
-            <input id="fUserName" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500" />
+          <div data-field="email">
+            <label class="block text-sm font-medium text-slate-700 mb-1">Gmail address</label>
+            <input id="fUserEmail" type="email" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500" placeholder="user@gmail.com" />
+            <p class="text-xs text-slate-500 mt-1">Invitations only support @gmail.com accounts.</p>
           </div>
-          <div data-field="password">
-            <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <input id="fUserPass" type="password" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500" />
+          <div data-field="name">
+            <label class="block text-sm font-medium text-slate-700 mb-1">Name</label>
+            <input id="fUserName" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Optional display name" />
           </div>
           <div data-field="role">
             <label class="block text-sm font-medium text-slate-700 mb-1">Role</label>
             <select id="fUserRole" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500"></select>
+          </div>
+          <div data-field="active">
+            <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+              <input id="fUserActive" type="checkbox" class="h-4 w-4" checked />
+              <span>Active</span>
+            </label>
+          </div>
+          <div id="inviteDetails" class="hidden text-sm text-slate-600 bg-slate-100 border border-slate-200 rounded-lg p-3">
+            <div class="font-semibold mb-1">Invitation link</div>
+            <div id="inviteLinkDisplay" class="break-all text-xs"></div>
+            <button id="btnCopyInviteFromModal" class="btn text-xs mt-2">Copy link</button>
           </div>
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
@@ -2038,14 +2066,28 @@ function renderUsersPage() {
     manageBtn.onclick = canManageRoles ? () => openRolesModal() : null;
   }
 
+  const copyInviteLink = async (token) => {
+    const link = buildInviteLink(token);
+    if (!token || !link) {
+      toast("Invitation link is not available yet");
+      return;
+    }
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+        toast("Invitation link copied to clipboard");
+      } else {
+        throw new Error("clipboard unsupported");
+      }
+    } catch (_err) {
+      const accepted = typeof window !== "undefined" ? window.prompt("Copy this invitation link:", link) : null;
+      if (accepted !== null) {
+        toast("Invitation link ready to share");
+      }
+    }
+  };
+
   if (canManageUsers) {
-    $$("#usersBody [data-change-password]").forEach((btn) =>
-      (btn.onclick = () => {
-        const id = btn.getAttribute("data-change-password");
-        if (!id) return;
-        openUserModal(id, { passwordOnly: true });
-      })
-    );
     $$("#usersBody [data-edit-user]").forEach((btn) => (btn.onclick = () => openUserModal(btn.getAttribute("data-edit-user"))));
     $$("#usersBody [data-del-user]").forEach((btn) =>
       (btn.onclick = async () => {
@@ -2061,6 +2103,33 @@ function renderUsersPage() {
           toast("User deleted");
         } catch (err) {
           toast(err?.message || "Failed to delete user");
+        } finally {
+          btn.disabled = false;
+        }
+      })
+    );
+    $$("#usersBody [data-copy-invite]").forEach((btn) =>
+      (btn.onclick = async () => {
+        const token = btn.getAttribute("data-copy-invite");
+        if (!token) {
+          toast("No invitation token available");
+          return;
+        }
+        await copyInviteLink(token);
+      })
+    );
+    $$("#usersBody [data-regenerate-invite]").forEach((btn) =>
+      (btn.onclick = async () => {
+        const id = btn.getAttribute("data-regenerate-invite");
+        if (!id) return;
+        btn.disabled = true;
+        try {
+          await api.put(`/users/${encodeURIComponent(id)}`, { regenerate_invitation: true });
+          await refreshUsers();
+          renderUsersPage();
+          toast("Invitation regenerated");
+        } catch (err) {
+          toast(err?.message || "Failed to regenerate invitation");
         } finally {
           btn.disabled = false;
         }
@@ -2092,50 +2161,51 @@ function renderUsersPage() {
   if (saveUserBtn) {
     saveUserBtn.onclick = canManageUsers
       ? async () => {
+          const emailEl = $("#fUserEmail");
           const nameEl = $("#fUserName");
-          const passEl = $("#fUserPass");
           const roleEl = $("#fUserRole");
-          const passwordOnlyMode = !!usersUi.passwordOnly;
-          const username = (nameEl?.value || "").trim();
-          const password = (passEl?.value || "").trim();
+          const activeEl = $("#fUserActive");
+          const emailRaw = (emailEl?.value || "").trim();
+          const email = emailRaw.toLowerCase();
+          const name = (nameEl?.value || "").trim();
           const roleId = roleEl?.value || "";
-          if (!passwordOnlyMode && !roleId) {
+          const isActive = activeEl ? !!activeEl.checked : true;
+          if (!roleId) {
             toast("Select a role");
             return;
+          }
+          if (!usersUi.editUserId) {
+            if (!email) {
+              toast("Enter a Gmail address");
+              return;
+            }
+            if (!email.endsWith("@gmail.com")) {
+              toast("Only Gmail addresses can be invited");
+              return;
+            }
           }
           try {
             saveUserBtn.disabled = true;
             if (usersUi.editUserId) {
-              if (passwordOnlyMode) {
-                if (!password) {
-                  toast("Enter a new password");
-                  return;
-                }
-                await api.put(`/users/${encodeURIComponent(usersUi.editUserId)}`, { password });
-                toast("Password updated");
-              } else {
-                const payload = { role_id: roleId, name: username || nameEl?.value || "" };
-                if (password) {
-                  payload.password = password;
-                }
-                await api.put(`/users/${encodeURIComponent(usersUi.editUserId)}`, payload);
-                toast("User updated");
+              const payload = { role_id: roleId, is_active: isActive };
+              if (name) {
+                payload.name = name;
               }
+              await api.put(`/users/${encodeURIComponent(usersUi.editUserId)}`, payload);
+              toast("User updated");
             } else {
-              if (!username) {
-                toast("Username is required");
-                return;
+              const payload = { email, role_id: roleId, is_active: isActive };
+              if (name) {
+                payload.name = name;
               }
-              if (!password) {
-                toast("Password is required");
-                return;
+              const created = await api.post("/users/", payload);
+              await refreshUsers();
+              if (created?.invitation_token) {
+                await copyInviteLink(created.invitation_token);
               }
-              if (!roleId) {
-                toast("Select a role");
-                return;
-              }
-              await api.post("/users/", { username, name: username, password, role_id: roleId, is_active: true });
-              toast("User created");
+              toast("Invitation created");
+              closeUserModal();
+              return;
             }
             await refreshUsers();
             closeUserModal();
@@ -2149,50 +2219,67 @@ function renderUsersPage() {
   }
 
   if (usersUi.userModalOpen) {
-    const usernameEl = $("#fUserName");
-    const passwordEl = $("#fUserPass");
+    const emailEl = $("#fUserEmail");
+    const nameEl = $("#fUserName");
     const roleEl = $("#fUserRole");
-    const usernameWrapper = document.querySelector('#userModal [data-field="username"]');
-    const roleWrapper = document.querySelector('#userModal [data-field="role"]');
-    const passwordWrapper = document.querySelector('#userModal [data-field="password"]');
-    const passwordOnlyMode = !!usersUi.passwordOnly;
-    if (usernameWrapper) usernameWrapper.classList.toggle('hidden', passwordOnlyMode);
-    if (roleWrapper) roleWrapper.classList.toggle('hidden', passwordOnlyMode);
-    if (passwordWrapper) passwordWrapper.classList.remove('hidden');
-    if (usernameEl) usernameEl.disabled = passwordOnlyMode || (!!usersUi.editUserId);
-    if (roleEl) roleEl.disabled = passwordOnlyMode ? true : false;
+    const activeEl = $("#fUserActive");
+    const inviteWrap = $("#inviteDetails");
+    const inviteLinkDisplay = $("#inviteLinkDisplay");
+    const inviteCopyBtn = $("#btnCopyInviteFromModal");
     const editing = state.users.find((u) => u.id === usersUi.editUserId);
     const options = state.roles.map((role) => `<option value="${H(role.id)}">${H(role.name)}</option>`).join("");
     if (roleEl) {
       roleEl.innerHTML = options;
     }
     if (editing) {
-      if (usernameEl) {
-        usernameEl.value = editing.username;
+      if (emailEl) {
+        emailEl.value = editing.email || editing.username;
+        emailEl.disabled = true;
       }
-      if (passwordEl) {
-        passwordEl.value = "";
-        passwordEl.placeholder = passwordOnlyMode ? "Enter new password" : "Leave blank to keep current password";
+      if (nameEl) {
+        nameEl.value = editing.name || "";
       }
-      if (roleEl && !passwordOnlyMode) {
+      if (roleEl) {
         roleEl.value = editing.roleId || state.roles[0]?.id || "";
+        roleEl.disabled = false;
       }
+      if (activeEl) {
+        activeEl.checked = !!editing.isActive;
+      }
+      if (editing.invitationToken) {
+        inviteWrap?.classList.remove("hidden");
+        if (inviteLinkDisplay) {
+          inviteLinkDisplay.textContent = buildInviteLink(editing.invitationToken);
+        }
+        if (inviteCopyBtn) {
+          inviteCopyBtn.disabled = false;
+          inviteCopyBtn.onclick = () => copyInviteLink(editing.invitationToken);
+        }
+      } else {
+        inviteWrap?.classList.add("hidden");
+        if (inviteLinkDisplay) inviteLinkDisplay.textContent = "";
+        if (inviteCopyBtn) inviteCopyBtn.onclick = null;
+      }
+      nameEl?.focus();
     } else {
-      if (usernameEl) {
-        usernameEl.value = "";
+      if (emailEl) {
+        emailEl.disabled = false;
+        emailEl.value = "";
+        emailEl.focus();
       }
-      if (passwordEl) {
-        passwordEl.value = "";
-        passwordEl.placeholder = passwordOnlyMode ? "Enter new password" : "";
+      if (nameEl) {
+        nameEl.value = "";
       }
-      if (roleEl && !passwordOnlyMode) {
+      if (roleEl) {
+        roleEl.disabled = false;
         roleEl.value = state.roles[0]?.id || "";
       }
-    }
-    if (passwordOnlyMode) {
-      if (passwordEl) passwordEl.focus();
-    } else if (usernameEl && !usernameEl.disabled) {
-      usernameEl.focus();
+      if (activeEl) {
+        activeEl.checked = true;
+      }
+      inviteWrap?.classList.add("hidden");
+      if (inviteLinkDisplay) inviteLinkDisplay.textContent = "";
+      if (inviteCopyBtn) inviteCopyBtn.onclick = null;
     }
   }
 
@@ -2574,7 +2661,6 @@ const flt={
 const usersUi={
   userModalOpen:false,
   editUserId:"",
-  passwordOnly:false,
   rolesModalOpen:false,
   selectedRoleKey:"",
   roleDraft:null,
@@ -2598,6 +2684,11 @@ body{ font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",
 .modal.show{ display:block; }
 .mask{ position:absolute; inset:0; background:rgba(15,23,42,.55); backdrop-filter:blur(2px); }
 .role-pill{ font-size:.7rem; padding:.15rem .45rem; border-radius:.8rem; background:#f1f5f9; border:1px solid #e2e8f0; }
+.status-pill{ display:inline-flex; align-items:center; gap:.25rem; font-size:.7rem; font-weight:600; padding:.2rem .55rem; border-radius:.8rem; }
+.status-pill.success{ background:#dcfce7; color:#166534; }
+.status-pill.pending{ background:#fef3c7; color:#92400e; }
+.status-pill.muted{ background:#e2e8f0; color:#475569; }
+.status-pill.info{ background:#e0f2fe; color:#0369a1; }
 .hint{ font-size:.78rem; color:#64748b; }
 .two-col{ display:grid; grid-template-columns:260px 1fr; gap:1rem; }
 @media (max-width: 980px){ .two-col{ grid-template-columns:1fr; } }
