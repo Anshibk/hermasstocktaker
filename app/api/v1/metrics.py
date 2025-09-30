@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import exists, func
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_current_user, get_db, require_permission
 from app.models.entry import Entry
 from app.models.item import Item
 from app.models.metric import Metric
@@ -15,7 +15,11 @@ from app.schemas.metric import MetricCreate, MetricOut
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
 
-@router.get("/", response_model=list[MetricOut])
+@router.get(
+    "/",
+    response_model=list[MetricOut],
+    dependencies=[Depends(get_current_user)],
+)
 def list_metrics(db: Session = Depends(get_db)):
     return db.query(Metric).order_by(Metric.name).all()
 

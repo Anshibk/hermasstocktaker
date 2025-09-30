@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_current_user, get_db, require_permission
 from app.models.entry import Entry
 from app.models.warehouse import Warehouse
 from app.schemas.warehouse import WarehouseCreate, WarehouseOut
@@ -14,7 +14,11 @@ from app.schemas.warehouse import WarehouseCreate, WarehouseOut
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 
 
-@router.get("/", response_model=list[WarehouseOut])
+@router.get(
+    "/",
+    response_model=list[WarehouseOut],
+    dependencies=[Depends(get_current_user)],
+)
 def list_warehouses(db: Session = Depends(get_db)):
     return db.query(Warehouse).order_by(Warehouse.name).all()
 

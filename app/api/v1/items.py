@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from sqlalchemy import exists
+from sqlalchemy import exists, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_current_user, get_db, require_permission
 from app.models.item import Item
 from app.models.entry import Entry
 from app.schemas.item import ItemCreate, ItemOut, ItemUpdate
@@ -15,7 +16,11 @@ from app.services import item_service
 router = APIRouter(prefix="/items", tags=["items"])
 
 
-@router.get("/", response_model=list[ItemOut])
+@router.get(
+    "/",
+    response_model=list[ItemOut],
+    dependencies=[Depends(get_current_user)],
+)
 def list_items(
     q: str | None = Query(default=None),
     db: Session = Depends(get_db),
@@ -33,9 +38,26 @@ def list_items(
     dependencies=[Depends(require_permission("can_import_master_data"))],
 )
 def create_item(payload: ItemCreate, db: Session = Depends(get_db)):
-    item = Item(**payload.dict())
+    normalized_name = payload.name.strip()
+    if not normalized_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item name is required")
+
+    exists_query = (
+        db.query(exists().where(func.lower(Item.name) == normalized_name.lower()))
+        .scalar()
+    )
+    if exists_query:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item name already exists")
+
+    data = payload.dict()
+    data["name"] = normalized_name
+    item = Item(**data)
     db.add(item)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item name already exists") from exc
     db.refresh(item)
     return item
 

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_current_user, get_db, require_permission
 from app.models.category import CategoryGroup, SubCategory
 from app.models.entry import Entry
 from app.models.item import Item
@@ -22,7 +22,11 @@ from app.core.constants import CORE_INVENTORY_GROUPS, CORE_INVENTORY_GROUPS_SET
 router = APIRouter(prefix="/categories", tags=["categories"])
 
 
-@router.get("/groups", response_model=list[CategoryGroupOut])
+@router.get(
+    "/groups",
+    response_model=list[CategoryGroupOut],
+    dependencies=[Depends(get_current_user)],
+)
 def list_groups(db: Session = Depends(get_db)):
     query = db.query(CategoryGroup).filter(
         CategoryGroup.name.in_(list(CORE_INVENTORY_GROUPS_SET))
@@ -46,7 +50,11 @@ def create_group(payload: CategoryGroupCreate, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/subs", response_model=list[SubCategoryOut])
+@router.get(
+    "/subs",
+    response_model=list[SubCategoryOut],
+    dependencies=[Depends(get_current_user)],
+)
 def list_subcategories(group_id: uuid.UUID | None = None, db: Session = Depends(get_db)):
     query = db.query(SubCategory)
     if group_id:
