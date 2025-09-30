@@ -44,7 +44,7 @@ class Settings:
             os.getenv("GOOGLE_SUPERUSER_EMAIL", "").strip().lower()
         )
 
-        self._validate()
+        self._runtime_validated = False
 
     @staticmethod
     def _parse_bool(raw: str | None, *, default: bool) -> bool:
@@ -57,7 +57,10 @@ class Settings:
             return False
         return default
 
-    def _validate(self) -> None:
+    def validate_runtime(self) -> None:
+        if self._runtime_validated:
+            return
+
         if self.session_secret == "change_me" or len(self.session_secret) < 32:
             raise ValueError(
                 "SESSION_SECRET must be set to a random value of at least 32 characters."
@@ -68,6 +71,8 @@ class Settings:
             raise ValueError(
                 "GOOGLE_SUPERUSER_EMAIL must belong to the allowed Google domain."
             )
+
+        self._runtime_validated = True
 
 
 @lru_cache()
