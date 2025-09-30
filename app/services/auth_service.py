@@ -4,6 +4,13 @@ from secrets import token_urlsafe
 from typing import Any
 
 from fastapi import HTTPException, status
+import importlib.util
+
+if importlib.util.find_spec("google.oauth2") is None:
+    raise RuntimeError(
+        "google-auth is not installed. Install dependencies with 'pip install -r requirements.txt' or 'pip install google-auth'."
+    )
+
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from sqlalchemy import func

@@ -9,7 +9,7 @@ Converted from the single-file HTML application into a FastAPI + PostgreSQL back
 
 ## Setup
 
-1. Create a virtual environment and install dependencies:
+1. Create a virtual environment and install dependencies (this installs the required `google-auth` package for Gmail sign-in):
 
    ```bash
    python -m venv .venv
@@ -41,6 +41,12 @@ Google authentication is required for all users. Configure a Google Identity Ser
 client and set `GOOGLE_CLIENT_ID` to the OAuth 2.0 Client ID. Set `GOOGLE_SUPERUSER_EMAIL`
 to the Gmail account that should become the first administrator; that account can then
 invite additional Gmail users and assign roles.
+
+### Troubleshooting Google authentication imports
+
+If the application logs show `ModuleNotFoundError: No module named 'google'`, the deployment
+is missing the Google authentication dependency. Install it by running `pip install -r requirements.txt`
+or `pip install google-auth` in the environment before starting the server.
 
 ### Updating Tailwind styles
 
