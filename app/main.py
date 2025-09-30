@@ -19,6 +19,8 @@ app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_s
 
 static_dir = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.globals["superuser_email"] = settings.google_superuser_email
+templates.env.globals["google_client_id"] = settings.google_client_id
 
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
@@ -49,7 +51,14 @@ def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "google_client_id": settings.google_client_id,
+            "superuser_email": settings.google_superuser_email,
+        },
+    )
 
 
 @app.get("/dashboard", response_class=HTMLResponse)

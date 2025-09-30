@@ -34,20 +34,39 @@
     <div class="bg-white/80 backdrop-blur-xl p-8 rounded-3xl shadow-2xl space-y-6 border border-white/40">
       <div class="text-center space-y-2">
         <h1 class="text-3xl font-semibold text-slate-800">Hermas Stock Taker</h1>
-        <p class="text-sm text-slate-600">Sign in with your administrator credentials</p>
+        <p class="text-sm text-slate-600">Secure access with your Google Workspace or Gmail account.</p>
       </div>
-      <form id="login-form" class="space-y-5">
-        <div>
-          <label class="block text-sm font-medium text-slate-600 mb-1" for="username">Username</label>
-          <input class="w-full border border-slate-300/70 rounded-xl px-3 py-2.5 bg-white/80 focus:outline-none focus:ring-2 focus:ring-sky-500" id="username" name="username" required />
+      {% if google_client_id %}
+      <div class="space-y-4">
+        <div id="g_id_onload"
+             data-client_id="{{ google_client_id }}"
+             data-context="signin"
+             data-ux_mode="popup"
+             data-callback="handleGoogleCredential"
+             data-itp_support="true"></div>
+        <div class="g_id_signin"
+             data-type="standard"
+             data-shape="pill"
+             data-theme="filled_blue"
+             data-text="signin_with"
+             data-size="large"
+             data-logo_alignment="left"></div>
+        <div class="flex flex-col gap-3 text-sm text-slate-500 text-center">
+          <p>Need access? Ask your administrator for an invite.</p>
+          {% if superuser_email %}
+          <a id="request-access" class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-600 hover:bg-slate-50 transition" href="mailto:{{ superuser_email }}?subject=Hermas%20Stock%20Taker%20Access&body=Hi%2C%20please%20invite%20me%20to%20Hermas%20Stock%20Taker.">
+            Request an invite
+          </a>
+          {% endif %}
         </div>
-        <div>
-          <label class="block text-sm font-medium text-slate-600 mb-1" for="password">Password</label>
-          <input type="password" class="w-full border border-slate-300/70 rounded-xl px-3 py-2.5 bg-white/80 focus:outline-none focus:ring-2 focus:ring-sky-500" id="password" name="password" required />
-        </div>
-        <button class="w-full bg-sky-600 hover:bg-sky-700 text-white rounded-xl py-2.5 font-semibold shadow-lg shadow-sky-600/30 transition" type="submit">Login</button>
-        <p id="error" class="text-sm text-red-600 hidden text-center">Invalid credentials</p>
-      </form>
+        <p id="status" class="text-sm text-slate-500 hidden text-center">Signing you in…</p>
+        <p id="error" class="text-sm text-red-600 hidden text-center">Unable to sign in with Google. Please try again.</p>
+      </div>
+      {% else %}
+      <div class="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700 text-center">
+        Google Sign-In is not configured. Please contact your administrator.
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -55,6 +74,7 @@
 
 {% block extra_js %}
 {{ super() }}
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const canvas = document.getElementById("login-ocean");
 const ctx = canvas.getContext("2d");
@@ -103,30 +123,62 @@ function animateOcean() {
 }
 animateOcean();
 
-const form = document.getElementById('login-form');
-const error = document.getElementById('error');
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  error.classList.add('hidden');
-  const payload = {
-    username: form.username.value,
-    password: form.password.value,
-  };
+const statusEl = document.getElementById('status');
+const errorEl = document.getElementById('error');
+
+function setStatus(message) {
+  if (!statusEl) return;
+  if (message) {
+    statusEl.textContent = message;
+    statusEl.classList.remove('hidden');
+  } else {
+    statusEl.classList.add('hidden');
+  }
+}
+
+function showError(message) {
+  if (!errorEl) return;
+  errorEl.textContent = message || 'Unable to sign in with Google. Please try again.';
+  errorEl.classList.remove('hidden');
+  setStatus('');
+}
+
+async function postCredential(credential) {
+  if (!credential) {
+    showError('Missing Google credential.');
+    return;
+  }
+  setStatus('Signing you in…');
+  if (errorEl) {
+    errorEl.classList.add('hidden');
+  }
   try {
-    const res = await fetch("/api/v1/auth/login", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(payload),
+    const res = await fetch('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential }),
     });
     if (res.ok) {
-      window.location.href = "/dashboard";
-    } else {
-      error.classList.remove('hidden');
+      window.location.href = '/dashboard';
+      return;
     }
+    const payload = await res.json().catch(() => ({}));
+    const detail = payload?.detail || 'Your Google account is not authorized.';
+    showError(detail);
   } catch (err) {
     console.error(err);
-    error.classList.remove('hidden');
+    showError('Unable to reach the server. Please try again.');
+  } finally {
+    setStatus('');
   }
-});
+}
+
+window.handleGoogleCredential = function handleGoogleCredential(response) {
+  if (!response || !response.credential) {
+    showError('Invalid Google response.');
+    return;
+  }
+  postCredential(response.credential);
+};
 </script>
 {% endblock %}

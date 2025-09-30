@@ -21,7 +21,7 @@ Converted from the single-file HTML application into a FastAPI + PostgreSQL back
 
    ```bash
    cp .env.example .env
-   # edit DATABASE_URL and SESSION_SECRET as needed
+   # edit DATABASE_URL, SESSION_SECRET, GOOGLE_CLIENT_ID, and GOOGLE_SUPERUSER_EMAIL as needed
    ```
 
 3. Run migrations and seed default data:
@@ -37,7 +37,10 @@ Converted from the single-file HTML application into a FastAPI + PostgreSQL back
    uvicorn app.main:app --reload
    ```
 
-The default administrator account is `Admin` / `adminthegreat`.
+Google authentication is required for all users. Configure a Google Identity Services
+client and set `GOOGLE_CLIENT_ID` to the OAuth 2.0 Client ID. Set `GOOGLE_SUPERUSER_EMAIL`
+to the Gmail account that should become the first administrator; that account can then
+invite additional Gmail users and assign roles.
 
 ### Updating Tailwind styles
 
