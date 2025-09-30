@@ -37,25 +37,16 @@
         <p class="text-sm text-slate-600">Secure access with your Google Workspace or Gmail account.</p>
       </div>
       {% if google_client_id %}
-      <div class="space-y-4">
-        <div id="g_id_onload"
-             data-client_id="{{ google_client_id }}"
-             data-context="signin"
-             data-ux_mode="popup"
-             data-callback="handleGoogleCredential"
-             data-itp_support="true"></div>
-        <div class="g_id_signin"
-             data-type="standard"
-             data-shape="pill"
-             data-theme="filled_blue"
-             data-text="signin_with"
-             data-size="large"
-             data-logo_alignment="left"></div>
+      <div class="space-y-5">
+        <div class="grid gap-3">
+          <div id="google-signin"></div>
+          <div id="google-signup"></div>
+        </div>
         <div class="flex flex-col gap-3 text-sm text-slate-500 text-center">
-          <p>Need access? Ask your administrator for an invite.</p>
+          <p>Use your authorized Gmail account to sign in or sign up.</p>
           {% if superuser_email %}
           <a id="request-access" class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-600 hover:bg-slate-50 transition" href="mailto:{{ superuser_email }}?subject=Hermas%20Stock%20Taker%20Access&body=Hi%2C%20please%20invite%20me%20to%20Hermas%20Stock%20Taker.">
-            Request an invite
+            Need an invite? Contact the admin
           </a>
           {% endif %}
         </div>
@@ -125,6 +116,7 @@ animateOcean();
 
 const statusEl = document.getElementById('status');
 const errorEl = document.getElementById('error');
+const googleClientId = {{ google_client_id|tojson }};
 
 function setStatus(message) {
   if (!statusEl) return;
@@ -173,12 +165,73 @@ async function postCredential(credential) {
   }
 }
 
-window.handleGoogleCredential = function handleGoogleCredential(response) {
+function handleGoogleCredential(response) {
   if (!response || !response.credential) {
     showError('Invalid Google response.');
     return;
   }
   postCredential(response.credential);
-};
+}
+
+function initializeGoogleSignIn() {
+  if (!googleClientId || !window.google || !window.google.accounts || !window.google.accounts.id) {
+    return false;
+  }
+
+  window.google.accounts.id.initialize({
+    client_id: googleClientId,
+    callback: handleGoogleCredential,
+    ux_mode: 'popup',
+    context: 'signin',
+  });
+
+  const signInContainer = document.getElementById('google-signin');
+  if (signInContainer && !signInContainer.hasChildNodes()) {
+    window.google.accounts.id.renderButton(signInContainer, {
+      type: 'standard',
+      shape: 'pill',
+      theme: 'filled_blue',
+      text: 'signin_with',
+      size: 'large',
+      logo_alignment: 'left',
+    });
+  }
+
+  const signUpContainer = document.getElementById('google-signup');
+  if (signUpContainer && !signUpContainer.hasChildNodes()) {
+    window.google.accounts.id.renderButton(signUpContainer, {
+      type: 'standard',
+      shape: 'pill',
+      theme: 'outline',
+      text: 'signup_with',
+      size: 'large',
+      logo_alignment: 'left',
+    });
+  }
+
+  return true;
+}
+
+function waitForGoogle(initAttempts = 0) {
+  if (initializeGoogleSignIn()) {
+    return;
+  }
+
+  if (initAttempts > 20) {
+    console.warn('Google Sign-In script not loaded.');
+    return;
+  }
+
+  setTimeout(() => waitForGoogle(initAttempts + 1), 150);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  if (!googleClientId) {
+    return;
+  }
+  waitForGoogle();
+});
+
+window.handleGoogleCredential = handleGoogleCredential;
 </script>
 {% endblock %}
