@@ -15,22 +15,26 @@ class UserBase(BaseModel):
     dashboard_share_enabled: bool = False
 
 
-class UserCreate(UserBase):
-    password: str
+class UserCreate(BaseModel):
+    username: str
+    name: Optional[str] = None
     role_id: uuid.UUID
+    is_active: bool = True
+    dashboard_share_enabled: bool = False
 
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
-    password: Optional[str] = None
     role_id: Optional[uuid.UUID] = None
     is_active: Optional[bool] = None
     dashboard_share_enabled: Optional[bool] = None
+    reset_google_link: Optional[bool] = None
 
 
 class UserOut(UserBase):
     id: uuid.UUID
     role: RoleOut
     parent_admin_id: Optional[uuid.UUID]
+    has_google_login: bool
 
     model_config = ConfigDict(from_attributes=True)

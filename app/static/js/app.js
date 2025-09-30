@@ -517,6 +517,7 @@ function seedState() {
     },
     roles: [],
     users: [],
+    superuserEmail: "",
     dateRange: { from: "", to: "" },
     entryDrafts: { raw: null, sfg: null, fg: null },
   };
@@ -1222,6 +1223,7 @@ function mapUserFromApi(user){
     roleId:role.id?String(role.id):"",
     roleName:String(role.name||"").trim()||"—",
     isActive: !!user.is_active,
+    hasGoogleLogin: !!user.has_google_login,
   };
 }
 
@@ -1239,17 +1241,15 @@ async function refreshUsers(){
 }
 
 /* ============== Users & Roles Page ============== */
-function openUserModal(userId, options = {}) {
+function openUserModal(userId = "") {
   usersUi.userModalOpen = true;
   usersUi.editUserId = userId ? String(userId) : "";
-  usersUi.passwordOnly = !!options.passwordOnly;
   renderUsersPage();
 }
 
 function closeUserModal() {
   usersUi.userModalOpen = false;
   usersUi.editUserId = "";
-  usersUi.passwordOnly = false;
   renderUsersPage();
 }
 
@@ -1505,36 +1505,49 @@ function renderUsersPage() {
     }
   }
   const adminUsernames = new Set(["admin", "adminthegreat"]);
+  if (state.superuserEmail) {
+    adminUsernames.add(String(state.superuserEmail).toLowerCase());
+  }
   const userRows = state.users.length
     ? state.users
         .map((user) => {
-          const isProtected = user.username && adminUsernames.has(user.username.toLowerCase());
+          const usernameLower = user.username ? user.username.toLowerCase() : "";
+          const isProtected = usernameLower && adminUsernames.has(usernameLower);
           const activateDisabled = !canManageUsers || isProtected ? " disabled" : "";
           const toggleClasses = !canManageUsers || isProtected ? " opacity-50 cursor-not-allowed" : "";
-          const editDisabled = !canManageUsers || isProtected ? " disabled" : "";
-          const editClasses = !canManageUsers || isProtected ? "btn text-sm opacity-50 cursor-not-allowed" : "btn text-sm";
+          const editClasses = canManageUsers ? "btn text-sm" : "btn text-sm opacity-50 cursor-not-allowed";
+          const editDisabled = canManageUsers ? "" : " disabled";
+          const resetEnabled = canManageUsers && user.hasGoogleLogin;
+          const resetClasses = resetEnabled ? "btn text-sm" : "btn text-sm opacity-50 cursor-not-allowed";
+          const resetDisabled = resetEnabled ? "" : " disabled";
           const deleteDisabled = !canManageUsers || isProtected ? " disabled" : "";
           const deleteClasses = !canManageUsers || isProtected ? "btn btn-danger text-sm opacity-50 cursor-not-allowed" : "btn btn-danger text-sm";
           const activation = isProtected
             ? '<span class="hint">Always active</span>'
-            : `<label class="inline-flex items-center gap-2 cursor-pointer select-none${toggleClasses}"><input type="checkbox" data-activate="${H(user.id)}" class="h-4 w-4" ${user.isActive ? "checked" : ""}${activateDisabled}><span class="text-slate-600 text-sm">${user.isActive ? "Active" : "Inactive"}</span></label>`;
-          const passwordCell = isProtected
-            ? `<button class="btn text-sm${!canManageUsers ? ' opacity-50 cursor-not-allowed' : ''}"${canManageUsers ? ` data-change-password="${H(user.id)}"` : ' disabled'}>Change Password</button>`
-            : '••••••••';
-          const editBtn = isProtected
-            ? `<div class="flex flex-wrap gap-2 items-center"><button class="${editClasses}" disabled>✎ Edit</button></div>`
-            : `<button class="${editClasses}" data-edit-user="${H(user.id)}"${editDisabled}>✎ Edit</button>`;
-          const deleteBtn = isProtected
+            : `<label class="inline-flex items-center gap-2 cursor-pointer select-none${toggleClasses}"><input type="checkbox" data-activate="${H(user.id)}" class="h-4 w-4"${user.isActive ? ' checked' : ''}${activateDisabled}><span class="text-slate-600 text-sm">${user.isActive ? 'Active' : 'Inactive'}</span></label>`;
+          const googleStatus = user.hasGoogleLogin
+            ? '<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">Linked</span>'
+            : '<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">Pending</span>';
+          const resetButton = user.hasGoogleLogin
+            ? `<button class="${resetClasses}" data-reset-google="${H(user.id)}"${resetDisabled}>Reset link</button>`
+            : '<span class="hint">—</span>';
+          const deleteBtn = !canManageUsers || isProtected
             ? '<span class="hint">—</span>'
             : `<button class="${deleteClasses}" data-del-user="${H(user.id)}" data-username="${H(user.username)}"${deleteDisabled}>Delete</button>`;
           const rowClass = isProtected ? " admin-locked" : "";
           return `<tr class="border-t border-slate-200${rowClass}">
       <td class="px-5 py-3 font-medium">${H(user.username)}</td>
-      <td class="px-5 py-3 text-slate-500">${passwordCell}</td>
+      <td class="px-5 py-3 text-slate-600">${H(user.name || '—')}</td>
       <td class="px-5 py-3"><span class="role-pill">${H(user.roleName)}</span></td>
+      <td class="px-5 py-3">${googleStatus}</td>
       <td class="px-5 py-3">${activation}</td>
-      <td class="px-5 py-3">${editBtn}</td>
-      <td class="px-5 py-3">${deleteBtn}</td>
+      <td class="px-5 py-3">
+        <div class="flex flex-wrap gap-2 items-center">
+          <button class="${editClasses}" data-edit-user="${H(user.id)}"${editDisabled}>${ICONS.edit} Edit</button>
+          ${resetButton}
+          ${deleteBtn}
+        </div>
+      </td>
     </tr>`;
         })
         .join("")
@@ -1764,11 +1777,9 @@ function renderUsersPage() {
     </div>
   `;
 
-  const userModalTitle = usersUi.passwordOnly
-    ? "Change Password"
-    : usersUi.editUserId
+  const userModalTitle = usersUi.editUserId
     ? "Edit User"
-    : "Add User";
+    : "Invite User";
 
   page.innerHTML = `
     <div class="max-w-6xl mx-auto px-4 py-8">
@@ -1789,12 +1800,12 @@ function renderUsersPage() {
           <table class="w-full min-w-[720px] text-sm">
             <thead class="bg-slate-50 text-slate-600">
               <tr>
-                <th class="text-left font-semibold px-5 py-3">Username</th>
-                <th class="text-left font-semibold px-5 py-3">Password</th>
+                <th class="text-left font-semibold px-5 py-3">Gmail</th>
+                <th class="text-left font-semibold px-5 py-3">Name</th>
                 <th class="text-left font-semibold px-5 py-3">Role</th>
-                <th class="text-left font-semibold px-5 py-3">Activation</th>
-                <th class="text-left font-semibold px-5 py-3">Edit</th>
-                <th class="text-left font-semibold px-5 py-3">Delete</th>
+                <th class="text-left font-semibold px-5 py-3">Google</th>
+                <th class="text-left font-semibold px-5 py-3">Status</th>
+                <th class="text-left font-semibold px-5 py-3">Actions</th>
               </tr>
             </thead>
             <tbody id="usersBody">${userRows}</tbody>
@@ -1811,17 +1822,27 @@ function renderUsersPage() {
           <button class="btn" data-close>Close</button>
         </div>
         <div class="p-5 space-y-4">
-          <div data-field="username">
-            <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
-            <input id="fUserName" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500" />
+          <div data-field="email">
+            <label class="block text-sm font-medium text-slate-700 mb-1">Gmail address</label>
+            <input id="fUserEmail" type="email" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500" placeholder="name@gmail.com" />
+            <p class="hint mt-1">Invited users must sign in with this Gmail account.</p>
           </div>
-          <div data-field="password">
-            <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <input id="fUserPass" type="password" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500" />
+          <div data-field="name">
+            <label class="block text-sm font-medium text-slate-700 mb-1">Display name</label>
+            <input id="fUserDisplayName" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Optional" />
           </div>
           <div data-field="role">
             <label class="block text-sm font-medium text-slate-700 mb-1">Role</label>
             <select id="fUserRole" class="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500"></select>
+          </div>
+          <div data-field="google" class="border border-slate-200 rounded-lg p-3 bg-slate-50/60">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-medium text-slate-700">Google link</div>
+                <div id="googleLinkStatus" class="text-sm text-slate-500">Pending first login.</div>
+              </div>
+              <button id="btnResetGoogleLink" class="btn text-sm hidden">Reset link</button>
+            </div>
           </div>
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
@@ -1872,14 +1893,24 @@ function renderUsersPage() {
     manageBtn.onclick = canManageRoles ? () => openRolesModal() : null;
   }
 
+  async function resetGoogleLink(userId, button) {
+    if (!userId) return;
+    const ok = await confirmDialog("Reset Google link for this user?");
+    if (!ok) return;
+    if (button) button.disabled = true;
+    try {
+      await api.put(`/users/${encodeURIComponent(userId)}`, { reset_google_link: true });
+      await refreshUsers();
+      renderUsersPage();
+      toast("Google link reset");
+    } catch (err) {
+      toast(err?.message || "Failed to reset Google link");
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
   if (canManageUsers) {
-    $$("#usersBody [data-change-password]").forEach((btn) =>
-      (btn.onclick = () => {
-        const id = btn.getAttribute("data-change-password");
-        if (!id) return;
-        openUserModal(id, { passwordOnly: true });
-      })
-    );
     $$("#usersBody [data-edit-user]").forEach((btn) => (btn.onclick = () => openUserModal(btn.getAttribute("data-edit-user"))));
     $$("#usersBody [data-del-user]").forEach((btn) =>
       (btn.onclick = async () => {
@@ -1898,6 +1929,12 @@ function renderUsersPage() {
         } finally {
           btn.disabled = false;
         }
+      })
+    );
+    $$("#usersBody [data-reset-google]").forEach((btn) =>
+      (btn.onclick = () => {
+        const id = btn.getAttribute("data-reset-google");
+        resetGoogleLink(id, btn);
       })
     );
     $$("#usersBody [data-activate]").forEach((cb) =>
@@ -1926,50 +1963,39 @@ function renderUsersPage() {
   if (saveUserBtn) {
     saveUserBtn.onclick = canManageUsers
       ? async () => {
-          const nameEl = $("#fUserName");
-          const passEl = $("#fUserPass");
+          const emailEl = $("#fUserEmail");
+          const nameEl = $("#fUserDisplayName");
           const roleEl = $("#fUserRole");
-          const passwordOnlyMode = !!usersUi.passwordOnly;
-          const username = (nameEl?.value || "").trim();
-          const password = (passEl?.value || "").trim();
+          const editing = state.users.find((u) => u.id === usersUi.editUserId);
+          const email = (emailEl?.value || editing?.username || "").trim();
+          const displayName = (nameEl?.value || "").trim();
           const roleId = roleEl?.value || "";
-          if (!passwordOnlyMode && !roleId) {
+          if (!roleId) {
             toast("Select a role");
             return;
           }
           try {
             saveUserBtn.disabled = true;
             if (usersUi.editUserId) {
-              if (passwordOnlyMode) {
-                if (!password) {
-                  toast("Enter a new password");
-                  return;
-                }
-                await api.put(`/users/${encodeURIComponent(usersUi.editUserId)}`, { password });
-                toast("Password updated");
-              } else {
-                const payload = { role_id: roleId, name: username || nameEl?.value || "" };
-                if (password) {
-                  payload.password = password;
-                }
-                await api.put(`/users/${encodeURIComponent(usersUi.editUserId)}`, payload);
-                toast("User updated");
+              const payload = { role_id: roleId };
+              if (displayName) {
+                payload.name = displayName;
               }
+              await api.put(`/users/${encodeURIComponent(usersUi.editUserId)}`, payload);
+              toast("User updated");
             } else {
-              if (!username) {
-                toast("Username is required");
+              if (!email) {
+                toast("Enter a Gmail address");
                 return;
               }
-              if (!password) {
-                toast("Password is required");
-                return;
-              }
-              if (!roleId) {
-                toast("Select a role");
-                return;
-              }
-              await api.post("/users/", { username, name: username, password, role_id: roleId, is_active: true });
-              toast("User created");
+              const payload = {
+                username: email,
+                name: displayName || email,
+                role_id: roleId,
+                is_active: true,
+              };
+              await api.post("/users/", payload);
+              toast("User invited");
             }
             await refreshUsers();
             closeUserModal();
@@ -1983,50 +2009,63 @@ function renderUsersPage() {
   }
 
   if (usersUi.userModalOpen) {
-    const usernameEl = $("#fUserName");
-    const passwordEl = $("#fUserPass");
+    const emailEl = $("#fUserEmail");
+    const nameEl = $("#fUserDisplayName");
     const roleEl = $("#fUserRole");
-    const usernameWrapper = document.querySelector('#userModal [data-field="username"]');
-    const roleWrapper = document.querySelector('#userModal [data-field="role"]');
-    const passwordWrapper = document.querySelector('#userModal [data-field="password"]');
-    const passwordOnlyMode = !!usersUi.passwordOnly;
-    if (usernameWrapper) usernameWrapper.classList.toggle('hidden', passwordOnlyMode);
-    if (roleWrapper) roleWrapper.classList.toggle('hidden', passwordOnlyMode);
-    if (passwordWrapper) passwordWrapper.classList.remove('hidden');
-    if (usernameEl) usernameEl.disabled = passwordOnlyMode || (!!usersUi.editUserId);
-    if (roleEl) roleEl.disabled = passwordOnlyMode ? true : false;
+    const googleStatusEl = $("#googleLinkStatus");
+    const resetBtn = $("#btnResetGoogleLink");
     const editing = state.users.find((u) => u.id === usersUi.editUserId);
     const options = state.roles.map((role) => `<option value="${H(role.id)}">${H(role.name)}</option>`).join("");
     if (roleEl) {
       roleEl.innerHTML = options;
     }
     if (editing) {
-      if (usernameEl) {
-        usernameEl.value = editing.username;
+      const protectedUser = editing.username && adminUsernames.has(editing.username.toLowerCase());
+      if (emailEl) {
+        emailEl.value = editing.username;
+        emailEl.disabled = true;
       }
-      if (passwordEl) {
-        passwordEl.value = "";
-        passwordEl.placeholder = passwordOnlyMode ? "Enter new password" : "Leave blank to keep current password";
+      if (nameEl) {
+        nameEl.value = editing.name || "";
       }
-      if (roleEl && !passwordOnlyMode) {
+      if (roleEl) {
         roleEl.value = editing.roleId || state.roles[0]?.id || "";
+        roleEl.disabled = protectedUser;
+      }
+      if (googleStatusEl) {
+        googleStatusEl.textContent = editing.hasGoogleLogin
+          ? "Linked to Google."
+          : "Pending first login.";
+      }
+      if (resetBtn) {
+        resetBtn.classList.toggle("hidden", !editing.hasGoogleLogin);
+        resetBtn.onclick = editing.hasGoogleLogin ? () => resetGoogleLink(editing.id, resetBtn) : null;
+        resetBtn.disabled = !editing.hasGoogleLogin;
       }
     } else {
-      if (usernameEl) {
-        usernameEl.value = "";
+      if (emailEl) {
+        emailEl.disabled = false;
+        emailEl.value = "";
       }
-      if (passwordEl) {
-        passwordEl.value = "";
-        passwordEl.placeholder = passwordOnlyMode ? "Enter new password" : "";
+      if (nameEl) {
+        nameEl.value = "";
       }
-      if (roleEl && !passwordOnlyMode) {
+      if (roleEl) {
         roleEl.value = state.roles[0]?.id || "";
+        roleEl.disabled = false;
+      }
+      if (googleStatusEl) {
+        googleStatusEl.textContent = "Pending first login.";
+      }
+      if (resetBtn) {
+        resetBtn.classList.add("hidden");
+        resetBtn.onclick = null;
       }
     }
-    if (passwordOnlyMode) {
-      if (passwordEl) passwordEl.focus();
-    } else if (usernameEl && !usernameEl.disabled) {
-      usernameEl.focus();
+    if (emailEl && !usersUi.editUserId) {
+      emailEl.focus();
+    } else if (nameEl) {
+      nameEl.focus();
     }
   }
 
@@ -2122,6 +2161,9 @@ function applyBootstrap(payload){
   state.currentUser=user;
   state.currentUserId=user.id?String(user.id):state.currentUserId;
   state.permissions = user.permissions || state.permissions || {};
+  if(payload.superuser_email){
+    state.superuserEmail = String(payload.superuser_email || "").trim();
+  }
   if (state.permissions) {
     state.permissions.can_edit_manage_data = !!state.permissions.can_view_manage_data;
   }
@@ -2379,6 +2421,9 @@ function groupOfLabel(state,label){
 /* ============== Global UI flags ============== */
 let state=loadState();
 ensureEntryDrafts();
+if(typeof window!=="undefined" && window.__SUPERUSER_EMAIL__ && !state.superuserEmail){
+  state.superuserEmail=String(window.__SUPERUSER_EMAIL__||"").trim();
+}
 if(typeof window!=="undefined"){
   window.state=state;
   window.saveState=saveState;
@@ -2405,7 +2450,6 @@ const flt={
 const usersUi={
   userModalOpen:false,
   editUserId:"",
-  passwordOnly:false,
   rolesModalOpen:false,
   selectedRoleKey:"",
   roleDraft:null,

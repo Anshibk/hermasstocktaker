@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from secrets import token_urlsafe
 from typing import Final
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_current_user, get_db, require_permission
 from loginpage import hash_password
 
@@ -19,7 +22,12 @@ PROTECTED_USERNAMES: Final = {"admin", "adminthegreat"}
 def _is_protected_user(user: User | None) -> bool:
     if not user or not user.username:
         return False
-    return user.username.casefold() in PROTECTED_USERNAMES
+    username = user.username.strip().casefold()
+    protected = {name.casefold() for name in PROTECTED_USERNAMES}
+    superuser_email = settings.google_superuser_email.strip().casefold() if settings.google_superuser_email else ""
+    if superuser_email:
+        protected.add(superuser_email)
+    return username in protected
 
 
 router = APIRouter(
@@ -36,20 +44,33 @@ def list_users(db: Session = Depends(get_db)):
 
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    username = payload.username.strip()
-    if not username:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required")
-    if db.query(User).filter(User.username.ilike(username)).first():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already exists")
-    data = payload.dict()
-    data["username"] = username
-    data["name"] = data.get("name") or data["username"]
-    password = data["password"].strip()
-    if not password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password is required")
-    data["password"] = hash_password(password)
+    username_raw = (payload.username or "").strip()
+    if not username_raw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is required")
+    if "@" not in username_raw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A Gmail address is required")
+    username = username_raw.casefold()
+    domain = username.split("@", 1)[1]
+    if domain not in {"gmail.com", "googlemail.com"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only Gmail accounts can be invited")
+
+    if (
+        db.query(User)
+        .filter(func.lower(User.username) == username)
+        .first()
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists")
+
+    display_name = (payload.name or "").strip()
+    hashed_secret = hash_password(token_urlsafe(32))
     user = User(
-        **data,
+        username=username,
+        name=display_name or username_raw,
+        password=hashed_secret,
+        role_id=payload.role_id,
+        is_active=payload.is_active,
+        dashboard_share_enabled=payload.dashboard_share_enabled,
+        google_sub=None,
         parent_admin_id=current_user.id if current_user.parent_admin_id is None else current_user.parent_admin_id,
     )
     db.add(user)
@@ -68,23 +89,16 @@ def update_user(user_id: uuid.UUID, payload: UserUpdate, db: Session = Depends(g
     data = payload.dict(exclude_unset=True)
 
     if is_protected:
-        illegal_fields = [key for key in data.keys() if key != "password"]
+        illegal_fields = [key for key in data.keys() if key not in {"name", "reset_google_link"}]
         if illegal_fields:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="The default admin account can only change its password.",
+                detail="The primary administrator cannot change those fields.",
             )
 
     updates: dict[str, object] = {}
-    if "password" in data:
-        password = (data["password"] or "").strip()
-        if not password:
-            data.pop("password")
-        else:
-            updates["password"] = hash_password(password)
-
     if "name" in data:
-        name = data["name"] or ""
+        name = (data["name"] or "").strip()
         updates["name"] = name if name else user.username
 
     for key in ("role_id", "is_active", "dashboard_share_enabled"):
@@ -93,6 +107,9 @@ def update_user(user_id: uuid.UUID, payload: UserUpdate, db: Session = Depends(g
 
     for key, value in updates.items():
         setattr(user, key, value)
+
+    if data.get("reset_google_link"):
+        user.google_sub = None
 
     if is_protected and not user.is_active:
         user.is_active = True

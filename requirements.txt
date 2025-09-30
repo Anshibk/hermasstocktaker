@@ -9,3 +9,4 @@ itsdangerous
 passlib==1.7.4
 openpyxl
 python-multipart
+google-auth

@@ -15,6 +15,8 @@ class Settings:
     database_url: str
     session_secret: str
     entry_event_queue_size: int
+    google_client_id: str
+    google_superuser_email: str
 
     def __init__(self) -> None:
         self.database_url = os.getenv(
@@ -28,6 +30,8 @@ class Settings:
         except ValueError:
             queue_size = 512
         self.entry_event_queue_size = max(0, min(queue_size, 100000))
+        self.google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+        self.google_superuser_email = os.getenv("GOOGLE_SUPERUSER_EMAIL", "").strip()
 
 
 @lru_cache()

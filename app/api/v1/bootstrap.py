@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_current_user, get_db
 from app.models.category import CategoryGroup, SubCategory
 from app.models.metric import Metric
@@ -75,4 +76,5 @@ def bootstrap(db: Session = Depends(get_db), current_user: User = Depends(get_cu
         "locations": location_payload,
         "warehouses": location_payload,
         "sessions": [{"id": str(s.id), "code": s.code, "name": s.name} for s in sessions],
+        "superuser_email": settings.google_superuser_email,
     }
