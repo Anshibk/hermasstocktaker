@@ -12,3 +12,4 @@ python-multipart
 google-auth
 google-auth-oauthlib
 requests
+email-validator
