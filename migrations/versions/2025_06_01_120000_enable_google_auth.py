@@ -1,4 +1,9 @@
-"""enable google auth and invitations"""
+"""enable google auth and invitations
+
+Revision ID: 20250601120000
+Revises: 20250520120500
+Create Date: 2025-06-01 12:00:00
+"""
 
 from __future__ import annotations
 
@@ -7,8 +12,8 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision = "2025_06_01_120000_enable_google_auth"
-down_revision = "2025_05_20_120500_add_items_lower_name_index"
+revision = "20250601120000"
+down_revision = "20250520120500"
 branch_labels: tuple[str, ...] | None = None
 depends_on: tuple[str, ...] | None = None
 
@@ -67,11 +72,15 @@ def upgrade() -> None:
         unique=True,
         postgresql_where=sa.text("invitation_token IS NOT NULL"),
     )
-    op.execute("UPDATE users SET email = username WHERE email IS NULL AND position('@' in username) > 0")
+    op.execute(
+        "UPDATE users SET email = username WHERE email IS NULL AND position('@' in username) > 0"
+    )
 
 
 def downgrade() -> None:
-    op.execute("UPDATE users SET email = NULL, google_sub = NULL, invitation_token = NULL, invited_at = NULL, invited_by_id = NULL")
+    op.execute(
+        "UPDATE users SET email = NULL, google_sub = NULL, invitation_token = NULL, invited_at = NULL, invited_by_id = NULL"
+    )
     op.drop_index("uq_users_invitation_token", table_name="users")
     op.drop_index("uq_users_google_sub", table_name="users")
     op.drop_index("uq_users_email", table_name="users")
